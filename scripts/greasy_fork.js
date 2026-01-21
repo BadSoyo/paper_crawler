@@ -848,10 +848,6 @@ const crawlerUtil = {
         tasks
       );
       importBtnHandler();
-      // repair special page
-      if (typeof documentFixer[currentTask.validator] === "function") {
-        documentFixer[currentTask.validator](document);
-      }
       try {
         const data = await singlefile.getPageData(DEFAULT_CONFIG);
         await saveTaskTimepoint(
