@@ -403,6 +403,21 @@ async function getPreSignUrlsForDoi(doi, name, pass, preferServer="") {
     };
   };
 
+  async function waitUntil(pred, {
+    timeoutMs = 7000,
+    intervalMs = 200,
+  } = {}) {
+    const start = Date.now();
+    while (true) {
+      try {
+        if (pred()) return true;
+      } catch (_) {}
+      if (Date.now() - start >= timeoutMs) return false;
+      await sleep(intervalMs / 1000);
+    }
+  }
+
+
 
 
   const pureHTMLCleaner = (document) => {
@@ -842,19 +857,33 @@ async function getPreSignUrlsForDoi(doi, name, pass, preferServer="") {
 
 
     // -------------------------- Detect Cloudflare challenge -------------------------------------------------------
-    await sleep(PAGE_LOADING_TIME);
+    // ✅ 等到“有结果”为止：要么出现 CF challenge，要么页面满足校验前置条件，要么超时
+    await waitUntil(() => {
+      // 1) Cloudflare challenge
+      if (document.getElementById("challenge-form")) return true;
+
+      // 2) DOI 已经出现在正文里（你的后面也会做这个检查，这里只是用来提前结束等待）
+      if (document.body?.textContent?.toLowerCase()?.includes(doi)) return true;
+
+      // 3) validator 已经能判定为 true（如果页面结构已就绪）
+      if (validator(document)) return true;
+
+      return false;
+    }, { timeoutMs: PAGE_LOADING_TIME * 1000, intervalMs: 200 });
+
+    // 等待结束后再判断是否 CF
     if (document.getElementById("challenge-form")) {
       console.log(`%cCloudflare challenge! ${currentTask.doi}`, printStyle);
       await sleep(CF_CHALLENGE_WAITING_TIME);
-      
-      // === MODIFIED: 记录 CF 失败 ===
+
       currentTask.cloudflareBlock = true;
       currentTask.failReason = "Cloudflare/Captcha Challenge blocked";
       await updateCurrentTask(false);
-      
+
       await prepareNextTask(nextTask.doi);
       return;
     }
+
     // bypass els institution check
     if (document.querySelector('.sec-A #bdd-els-close')) {
       const elsCloseBtn = document.querySelector('.sec-A #bdd-els-close');
