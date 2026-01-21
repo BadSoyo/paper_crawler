@@ -134,7 +134,6 @@ const crawlerUtil = {
     const configServer = DOMAIN_REG.test(preferServer) ? [preferServer] : [];
     const preSignSevers = configServer.concat([
       "http://localhost:8000",
-      "https://electrolyte-brain-minio.deno.dev",
     ]);
     async function getPreSignUrlFromServer(serverIndex = 0) {
       try {
@@ -144,7 +143,13 @@ const crawlerUtil = {
           )
         ).json();
       } catch (error) {
+        console.warn(
+          `[ERROR] Failed on server ${server} (${serverIndex + 1}/${preSignSevers.length})`,
+          error
+        );
+
         if (!preSignSevers[serverIndex + 1]) {
+          console.error("[PreSign] All presign servers failed, require reload.");
           return { reload: true };
         }
         return await getPreSignUrlFromServer(serverIndex + 1);
