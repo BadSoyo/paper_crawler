@@ -291,8 +291,8 @@ window.validators = {
 }
 ;
 
-validators["10.1006"] = validators["10.1016"];
-validators["10.1149"] = validators["10.1088"];
+window.validators["10.1006"] = window.validators["10.1016"];
+window.validators["10.1149"] = window.validators["10.1088"];
 
 window.documentFixer = {
   10.1088: (document) => {
@@ -304,4 +304,4 @@ window.documentFixer = {
     });
   },
 };
-documentFixer["10.1149"] = documentFixer["10.1088"];
+window.documentFixer["10.1149"] = window.documentFixer["10.1088"];
