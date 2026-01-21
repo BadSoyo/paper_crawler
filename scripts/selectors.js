@@ -293,15 +293,3 @@ window.validators = {
 
 window.validators["10.1006"] = window.validators["10.1016"];
 window.validators["10.1149"] = window.validators["10.1088"];
-
-window.documentFixer = {
-  10.1088: (document) => {
-    const imgs = Array.from(
-      document.querySelectorAll('main figure img[data-src^="http"]')
-    );
-    imgs.forEach((item) => {
-      item.src = item.dataset.src;
-    });
-  },
-};
-window.documentFixer["10.1149"] = window.documentFixer["10.1088"];

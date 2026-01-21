@@ -40,7 +40,6 @@ const TIME_POINT_TYPES = {
   SINGLE_FILE_UPLOADED: "singleFileUploaded",
   VALIDATE_FAILED: "validateFailed",
 };
-const VALIDATOR_URL = "https://raw.githubusercontent.com/BadSoyo/paper_crawler/refs/heads/main/scripts/selectors.js";
 
 let gmc = new GM_config({
   id: "CrawlerConfig",
@@ -332,24 +331,21 @@ const crawlerUtil = {
   function AddImportBtn() {
     const btnWrap = document.createElement("div");
     btnWrap.id = "CRAWLER_ID";
-    // 使用 Flex 布局让两个按钮并排
     btnWrap.style = "position: fixed; bottom: 40%; right: 8px; display: flex; flex-direction: column; gap: 5px; z-index: 9999;";
     
-    // 1. 定义 Import 按钮
+    // Import 按钮 (保持不变)
     const importBtn = document.createElement("button");
     importBtn.innerText = "Import JSON";
     importBtn.style = "padding: 6px 12px; border-radius: 4px; background-color: #224466; color: #fff; border: none; cursor: pointer;";
     
-    // 2. 定义 Update Validators 按钮
+    // Update 按钮 (CSP 安全版)
     const updateBtn = document.createElement("button");
     updateBtn.innerText = "Update Validators";
     updateBtn.style = "padding: 6px 12px; border-radius: 4px; background-color: #d9534f; color: #fff; border: none; cursor: pointer;";
 
-    // --- Import 点击事件 (保持原逻辑) ---
+    // --- Import 点击事件 ---
     importBtn.onclick = async () => {
-      if (!window.confirm("The data in browser will be clear up. Please make sure you have to do this !!!")) {
-        return;
-      }
+      if (!window.confirm("The data in browser will be clear up. Please make sure you have to do this !!!")) { return; }
       const file = await readFile(".json");
       const reader = new FileReader();
       reader.onload = (event) => {
@@ -364,64 +360,80 @@ const crawlerUtil = {
       reader.readAsText(file);
     };
 
-    // --- Update 点击事件 (新增逻辑) ---
+    // --- Update 点击事件 (文本解析模式) ---
     updateBtn.onclick = async () => {
         updateBtn.innerText = "Updating...";
         updateBtn.disabled = true;
 
         try {
-            console.group("🔍 Updater 诊断模式");
-            const freshUrl = VALIDATOR_URL + "?t=" + Date.now();
-            console.log("正在请求 URL:", freshUrl);
+            // 使用你指定的 refs/heads 链接
+            const freshUrl = "https://raw.githubusercontent.com/BadSoyo/paper_crawler/refs/heads/main/scripts/selectors.js?t=" + Date.now();
+            console.log("[Updater] Requesting:", freshUrl);
             
-            const res = await GM.xmlHttpRequest({
-                method: "GET",
-                url: freshUrl
-            });
-
-            console.log("HTTP 状态码:", res.status);
+            const res = await GM.xmlHttpRequest({ method: "GET", url: freshUrl });
 
             if (res.status === 200 && res.responseText) {
-                const content = res.responseText.trim();
-                
-                // 🛑 核心诊断：打印前 200 个字符
-                console.log("⬇️⬇️⬇️ 下载到的真实内容 (前200字符) ⬇️⬇️⬇️");
-                console.log(content.substring(0, 200));
-                console.log("⬆️⬆️⬆️ 诊断结束 ⬆️⬆️⬆️");
+                let content = res.responseText.trim();
 
-                // 检查是否包含 HTML 标签 (典型错误特征)
-                if (content.startsWith("<!DOCTYPE html>") || content.includes("<html")) {
-                    alert("❌ 错误：\n下载到的是 HTML 网页，不是 JS 代码！\n请检查链接是否为 raw.githubusercontent.com 开头。");
-                    console.error("检测到 HTML 标签，停止注入，防止报错。");
-                    return;
+                // 1. 提取 validators 主体对象
+                // 匹配 window.validators = { ... } 或 validators = { ... }
+                let valMatch = content.match(/(?:window\.|const\s+|let\s+|var\s+)?validators\s*=\s*(\{[\s\S]*?\})\s*;/);
+                // 备选: 如果没有分号结尾
+                if (!valMatch) valMatch = content.match(/(?:window\.|const\s+|let\s+|var\s+)?validators\s*=\s*(\{[\s\S]*\})/);
+
+                if (valMatch && valMatch[1]) {
+                    let jsonStr = valMatch[1];
+                    
+                    // 2. 清洗 JSON 格式 (即使 GitHub 文件很标准，防一手尾部逗号)
+                    // 移除数组或对象末尾的逗号 (JSON.parse 不允许)
+                    jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+
+                    try {
+                        // 3. 解析并应用
+                        const newValidators = JSON.parse(jsonStr);
+                        window.validators = newValidators;
+                        
+                        // 4. 手动解析底部的别名映射 (Alias)
+                        // 匹配模式: validators["A"] = validators["B"];
+                        // 同时兼容带 window. 前缀和不带的情况
+                        const aliasRegex = /(?:window\.)?validators\[["']([^"']+)["']\]\s*=\s*(?:window\.)?validators\[["']([^"']+)["']\]/g;
+                        let aliasMatch;
+                        let aliasCount = 0;
+                        while ((aliasMatch = aliasRegex.exec(content)) !== null) {
+                            const [_, key, target] = aliasMatch;
+                            if (window.validators[target]) {
+                                window.validators[key] = window.validators[target];
+                                aliasCount++;
+                            }
+                        }
+
+                        // 5. 更新本地缓存 (用于下次刷新页面时 dependenciesInit 加载)
+                        // 我们缓存下载下来的原始内容，因为页面初始化时是用 script 标签加载的，需要完整代码
+                        const scriptCache = (await GM.getValue("scriptCache")) || {};
+                        // 注意：这里要把 URL 的参数去掉，对应 dependenciesInit 里的 key
+                        const cacheKey = "https://raw.githubusercontent.com/BadSoyo/paper_crawler/refs/heads/main/scripts/selectors.js";
+                        scriptCache[cacheKey] = content;
+                        await GM.setValue("scriptCache", scriptCache);
+
+                        const count = Object.keys(window.validators).length;
+                        console.log(`[Updater] Success. Rules: ${count}, Aliases: ${aliasCount}`);
+                        alert(`✅ 更新成功！\n\n当前规则总数: ${count}\n包含映射: ${aliasCount} 个\n(documentFixer 未更新，需刷新页面生效)`);
+
+                    } catch (e) {
+                        console.error("[Updater] JSON Parse Error:", e);
+                        console.log("Error part:", jsonStr.substring(0, 500));
+                        alert("❌ 解析失败：GitHub 文件中的 validators 对象格式有误。\n请确保它是标准的 JSON 格式 (key带双引号，无尾部逗号)。");
+                    }
+                } else {
+                    alert("❌ 未能在代码中通过正则匹配到 validators 对象。\n请检查文件开头是否为 'window.validators = {'");
                 }
-
-                // 检查是否包含 window.validators (正确特征)
-                if (!content.includes("validators")) {
-                    alert("⚠️ 警告：\n下载的文件里似乎没找到 'validators' 关键字。\n请检查文件内容是否正确。");
-                }
-
-                // 正常注入流程
-                const scriptCache = (await GM.getValue("scriptCache")) || {};
-                scriptCache[VALIDATOR_URL] = content;
-                await GM.setValue("scriptCache", scriptCache);
-                
-                const s = document.createElement("script");
-                s.innerHTML = content;
-                document.body.appendChild(s);
-                
-                const count = Object.keys(window.validators || {}).length;
-                console.log(`注入完成。当前 window.validators 包含 ${count} 个规则。`);
-                alert(`更新成功！\n检测到 ${count} 个规则。`);
-                
             } else {
-                throw new Error(`网络请求失败: ${res.status}`);
+                alert(`❌ 网络请求失败: ${res.status}`);
             }
         } catch (e) {
             console.error(e);
-            alert("错误: " + e.message);
+            alert("更新流程出错: " + e.message);
         } finally {
-            console.groupEnd();
             updateBtn.innerText = "Update Validators";
             updateBtn.disabled = false;
         }
