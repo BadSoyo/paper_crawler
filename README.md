@@ -9,3 +9,7 @@
 * 使用colab脚本发布
 * 为每个fix编写一个selector，更新selector
 * 使用<>脚本分类输出task.json
+
+* 更新gist为repo
+* 测试能不能下载到正式数据库里
+* 你需要开启本地网络访问和不安全内容允许

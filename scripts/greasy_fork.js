@@ -159,45 +159,57 @@ const crawlerUtil = {
     return url || null;
   },
 
-  uploader: async (url, content) => {
-    // ============ DEBUG START ============
-    console.log(`%c[DEBUG] 准备上传! 目标地址: ${url}`, "color: red; font-weight: bold; font-size: 14px;");
-    if (url.startsWith("http:") && location.protocol === "https:") {
-        console.warn("%c[DEBUG WARN] 检测到混合内容风险: 正在 HTTPS 页面请求 HTTP 接口!", "background: yellow; color: black; font-size: 14px;");
-    }
-    // ============ DEBUG END ============
+    uploader: async (url, content) => {
+        // [DIAGNOSTIC START] 记录开始时间与文件大小
+        const startTime = Date.now();
+        const fileSizeMB = (content.length / 1024 / 1024).toFixed(2);
+        console.log(`%c[诊断] 开始上传 | 文件大小: ${fileSizeMB} MB | 目标: ${url}`, "color: purple; font-weight: bold;");
 
-    const mime = "application/gzip"
-    const gzip_data = pako.gzip(content, { level: 9 });
-    const upload_blob = new Blob([gzip_data], { type: mime });
+        const mime = "application/gzip"
+        const gzip_data = pako.gzip(content, { level: 9 });
+        const upload_blob = new Blob([gzip_data], { type: mime });
+        // 记录压缩后的实际传输大小
+        console.log(`[诊断] GZIP 压缩后大小: ${(upload_blob.size / 1024 / 1024).toFixed(2)} MB`);
 
-    try {
-        const response = await GM.xmlHttpRequest({
-            method: "PUT",
-            url,
-            headers: {
-                "Content-Type": mime,
-                "Content-Length": upload_blob.size,
-            },
-            data: upload_blob,
-            onerror: (err) => {
-                console.error("[DEBUG] GM_xhr onerror:", err);
-            },
-            ontimeout: () => {
-                console.error("[DEBUG] GM_xhr timeout");
+        try {
+            const response = await GM.xmlHttpRequest({
+                method: "PUT",
+                url,
+                timeout: 120000, // 同时应用我们之前讨论的超时修复，看是否缓解
+                headers: {
+                    "Content-Type": mime,
+                    "Content-Length": upload_blob.size,
+                },
+                data: upload_blob,
+                onerror: (err) => {
+                    // [DIAGNOSTIC] 网络层面的失败
+                    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                    console.error(`%c[诊断-致命] 上传网络错误 (耗时 ${duration}s):`, "background:red;color:white", err);
+                    console.log("完整错误对象:", err);
+                },
+                ontimeout: () => {
+                    // [DIAGNOSTIC] 超时专门捕获
+                    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+                    console.error(`%c[诊断-致命] 上传超时 (耗时 ${duration}s)`, "background:orange;color:black");
+                    throw new Error(`Upload Timed Out after ${duration}s`);
+                }
+            });
+
+            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+            console.log(`[诊断] 请求结束，耗时: ${duration}s, 状态码: ${response.status}`);
+
+            if (response.status >= 400) {
+                // [DIAGNOSTIC] 服务端拒绝
+                console.error(`[诊断-服务端错误] 响应内容: ${response.responseText}`);
+                console.error(`[诊断-服务端错误] 响应头: ${response.responseHeaders}`);
+                throw new Error(`Upload failed with status ${response.status}`);
             }
-        });
-        console.log("[DEBUG] 上传请求响应状态:", response.status, response.statusText);
-        if (response.status >= 400) {
-            console.error("[DEBUG] 上传服务端返回错误:", response.responseText);
-            throw new Error(`Upload failed with status ${response.status}`);
+            return response;
+        } catch (e) {
+            console.error("[DEBUG] uploader 捕获异常:", e);
+            throw e;
         }
-        return response;
-    } catch (e) {
-        console.error("[DEBUG] uploader 函数内部捕获异常:", e);
-        throw e;
-    }
-  },
+    },
 
   downloadFile: (data, fileName) => {
     const a = document.createElement("a");
