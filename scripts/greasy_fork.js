@@ -90,9 +90,9 @@ const crawlerUtil = {
   addScript: (url) => {
     const s = document.createElement("script");
     s.src = url;
-    s.onerror = (evt) => {
+    s.onerror = () => {
       setTimeout(() => {
-        addScript(url);
+        crawlerUtil.addScript(url);
       }, 2000);
     };
     document.body.append(s);
@@ -102,49 +102,53 @@ const crawlerUtil = {
     const s = document.createElement("script");
     s.dataset.crawler = "true";
     const scriptCache = (await GM.getValue("scriptCache")) || {};
+
     if (cache && scriptCache[url]) {
       s.innerHTML = scriptCache[url];
       document.body.append(s);
       return true;
     }
+
     try {
       const res = await GM.xmlHttpRequest({
-        url: url,
+        url,
         method: "GET",
       });
 
       const text = res.responseText;
       if (cache) {
         scriptCache[url] = text;
-        GM.setValue("scriptCache", scriptCache);
+        await GM.setValue("scriptCache", scriptCache);
       }
+
       s.innerHTML = text;
       document.body.append(s);
       return true;
     } catch (error) {
-      if (retry > 3) {
-        return false;
-      }
-      await sleep(2);
-      return await addScriptByText(url, retry + 1);
+      if (retry > 3) return false;
+      await crawlerUtil.sleep(2);
+      return crawlerUtil.addScriptByText(url, cache, retry + 1);
     }
   },
 
+  // ---------------- Presign ----------------
   getPreSignUrl: async (doi, fileName, name, pass, preferServer = "") => {
     const configServer = DOMAIN_REG.test(preferServer) ? [preferServer] : [];
     const preSignSevers = configServer.concat([
       "http://localhost:8000",
     ]);
+
     async function getPreSignUrlFromServer(serverIndex = 0) {
+      const server = preSignSevers[serverIndex];
       try {
         return await (
           await GM_fetch(
-            `${preSignSevers[serverIndex]}/api/presignedPutObject?doi=${doi}&file_name=${fileName}&account=${name}&pass=${pass}`
+            `${server}/api/presignedPutObject?doi=${doi}&file_name=${fileName}&account=${name}&pass=${pass}`
           )
         ).json();
       } catch (error) {
         console.warn(
-          `[ERROR] Failed on server ${server} (${serverIndex + 1}/${preSignSevers.length})`,
+          `[PreSign] Failed on server ${server} (${serverIndex + 1}/${preSignSevers.length})`,
           error
         );
 
@@ -152,78 +156,89 @@ const crawlerUtil = {
           console.error("[PreSign] All presign servers failed, require reload.");
           return { reload: true };
         }
-        return await getPreSignUrlFromServer(serverIndex + 1);
+        return getPreSignUrlFromServer(serverIndex + 1);
       }
     }
 
     const preSignRes = await getPreSignUrlFromServer();
-    if (preSignRes.reload) {
-      return "RELOAD";
-    }
-
-    const url = preSignRes?.url;
-    return url || null;
+    if (preSignRes?.reload) return "RELOAD";
+    return preSignRes?.url || null;
   },
 
-    uploader: async (url, content) => {
-        // [DIAGNOSTIC START] 记录开始时间与文件大小
-        const startTime = Date.now();
-        const fileSizeMB = (content.length / 1024 / 1024).toFixed(2);
-        console.log(`%c[诊断] 开始上传 | 文件大小: ${fileSizeMB} MB | 目标: ${url}`, "color: purple; font-weight: bold;");
+  // ---------------- Upload Warm-Up ----------------
+  __uploadWarmupDone: new Set(),
 
-        const mime = "application/gzip"
-        const gzip_data = pako.gzip(content, { level: 9 });
-        const upload_blob = new Blob([gzip_data], { type: mime });
-        // 记录压缩后的实际传输大小
-        console.log(`[诊断] GZIP 压缩后大小: ${(upload_blob.size / 1024 / 1024).toFixed(2)} MB`);
+  warmUpOrigin: async (origin) => {
+    if (crawlerUtil.__uploadWarmupDone.has(origin)) return;
+    crawlerUtil.__uploadWarmupDone.add(origin);
 
-        try {
-            const response = await GM.xmlHttpRequest({
-                method: "PUT",
-                url,
-                timeout: 120000, // 同时应用我们之前讨论的超时修复，看是否缓解
-                headers: {
-                    "Content-Type": mime,
-                    "Content-Length": upload_blob.size,
-                },
-                data: upload_blob,
-                onerror: (err) => {
-                    // [DIAGNOSTIC] 网络层面的失败
-                    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-                    console.error(`%c[诊断-致命] 上传网络错误 (耗时 ${duration}s):`, "background:red;color:white", err);
-                    console.log("完整错误对象:", err);
-                },
-                ontimeout: () => {
-                    // [DIAGNOSTIC] 超时专门捕获
-                    const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-                    console.error(`%c[诊断-致命] 上传超时 (耗时 ${duration}s)`, "background:orange;color:black");
-                    throw new Error(`Upload Timed Out after ${duration}s`);
-                }
-            });
+    try {
+      await GM.xmlHttpRequest({
+        method: "GET",
+        url: origin + "/",
+        timeout: 5000,
+      });
+      console.log(`[Warmup] Connection ready: ${origin}`);
+    } catch (e) {
+      // 预热失败不影响正式上传
+      console.warn(`[Warmup] Failed (ignored): ${origin}`, e);
+    }
+  },
 
-            const duration = ((Date.now() - startTime) / 1000).toFixed(2);
-            console.log(`[诊断] 请求结束，耗时: ${duration}s, 状态码: ${response.status}`);
+  // ---------------- Uploader ----------------
+  uploader: async (url, content) => {
+    const origin = new URL(url).origin;
+    await crawlerUtil.warmUpOrigin(origin);
 
-            if (response.status >= 400) {
-                // [DIAGNOSTIC] 服务端拒绝
-                console.error(`[诊断-服务端错误] 响应内容: ${response.responseText}`);
-                console.error(`[诊断-服务端错误] 响应头: ${response.responseHeaders}`);
-                throw new Error(`Upload failed with status ${response.status}`);
-            }
-            return response;
-        } catch (e) {
-            console.error("[DEBUG] uploader 捕获异常:", e);
-            throw e;
-        }
-    },
+    const startTime = Date.now();
+    const fileSizeMB = (content.length / 1024 / 1024).toFixed(2);
+    console.log(
+      `%c[诊断] 开始上传 | 文件大小: ${fileSizeMB} MB | 目标: ${url}`,
+      "color: purple; font-weight: bold;"
+    );
 
+    const mime = "application/gzip";
+    const gzip_data = pako.gzip(content, { level: 9 });
+    const upload_blob = new Blob([gzip_data], { type: mime });
+
+    console.log(
+      `[诊断] GZIP 压缩后大小: ${(upload_blob.size / 1024 / 1024).toFixed(2)} MB`
+    );
+
+    try {
+      const response = await GM.xmlHttpRequest({
+        method: "PUT",
+        url,
+        timeout: 120000,
+        headers: {
+          "Content-Type": mime,
+          "Content-Length": upload_blob.size,
+        },
+        data: upload_blob,
+      });
+
+      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(`[诊断] 请求结束，耗时: ${duration}s, 状态码: ${response.status}`);
+
+      if (response.status >= 400) {
+        console.error(`[诊断-服务端错误] 响应内容: ${response.responseText}`);
+        console.error(`[诊断-服务端错误] 响应头: ${response.responseHeaders}`);
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      return response;
+    } catch (e) {
+      console.error("[DEBUG] uploader 捕获异常:", e);
+      throw e;
+    }
+  },
+
+  // ---------------- Utils ----------------
   downloadFile: (data, fileName) => {
     const a = document.createElement("a");
     document.body.appendChild(a);
     a.style = "display: none";
-    const blob = new Blob([data], {
-      type: "application/octet-stream",
-    });
+    const blob = new Blob([data], { type: "application/octet-stream" });
     const url = window.URL.createObjectURL(blob);
     a.href = url;
     a.download = fileName;
@@ -231,14 +246,13 @@ const crawlerUtil = {
     window.URL.revokeObjectURL(url);
   },
 
-  generateClientId: () => (1e6 * Math.random()).toString(32).replace(".", ""),
+  generateClientId: () =>
+    (1e6 * Math.random()).toString(32).replace(".", ""),
 
-  sleep: (duration) => {
-    return new Promise((res, rej) => {
-      setTimeout(() => res(), duration * 1000);
-    });
-  },
+  sleep: (duration) =>
+    new Promise((res) => setTimeout(res, duration * 1000)),
 };
+
 
 // === presign cache ===
 const PRESIGN_TTL_MS = 8 * 60 * 1000; // 8 min, must be < 15min expiry
