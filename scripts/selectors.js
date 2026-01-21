@@ -264,6 +264,34 @@ window.validators = {
       }
     ]
   },
+  "10.1016": {
+    "sel_A": [
+      "div.abstract.author > div",
+      "[data-left-hand-nav=\"Summary\"]",
+      "article #author-abstract [id^=abspara]"
+    ],
+    "sel_R": ":where(a.workspace-trigger, a[href^=\"#bib\"])",
+    "sel_P": [
+      "div#body > div:first-child > section[id^=s] p[id^=p]",
+      "div#body > div:first-child  :where(section[id^=aep-section] > p, section[id^=aep-section] div > p)",
+      "[id^='sec'] .section-paragraph",
+      "div#body [id^='sec'] p[id^='par']",
+      "article #bodymatter [id^=sec-] [role=\"paragraph\"]",
+      "div#body section[id^='s'] [id^='p']",
+      "#body section[id^=aep-section] :where(h2,h3,h4) ~ div",
+      "#body section[id^=sec] :where(h2,h3,h4) ~ div"
+    ],
+    "sel_F": ["div#body figure .captions"],
+    "sel_S": ["div#body figure .captions"],
+    "sel_T": [
+      {
+        "wrapper": "div#body  .tables",
+        "title": ".captions",
+        "table": "table",
+        "footer": [".footnotes", ".legend ~ p"]
+      }
+    ]
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
