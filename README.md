@@ -20,3 +20,7 @@ set -a
 source .env
 set +a
 deno run --allow-net --allow-env minio-presignedPutObject.deno.ts
+
+打开tampermonkey的高级选项
+* 打开执行脚本权限
+* 在chrome中打开执行脚本权限
