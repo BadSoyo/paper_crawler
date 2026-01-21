@@ -370,41 +370,58 @@ const crawlerUtil = {
         updateBtn.disabled = true;
 
         try {
-            console.log("[Updater] 开始获取最新 Validators...");
-            // 1. 强制从网络获取 (加时间戳绕过 GitHub/CDN 缓存)
+            console.group("🔍 Updater 诊断模式");
             const freshUrl = VALIDATOR_URL + "?t=" + Date.now();
+            console.log("正在请求 URL:", freshUrl);
             
             const res = await GM.xmlHttpRequest({
                 method: "GET",
                 url: freshUrl
             });
 
+            console.log("HTTP 状态码:", res.status);
+
             if (res.status === 200 && res.responseText) {
-                const newCode = res.responseText;
+                const content = res.responseText.trim();
                 
-                // 2. 更新本地 GM 缓存 (Key 必须与 dependenciesInit 里用的一致，即无参数的 VALIDATOR_URL)
+                // 🛑 核心诊断：打印前 200 个字符
+                console.log("⬇️⬇️⬇️ 下载到的真实内容 (前200字符) ⬇️⬇️⬇️");
+                console.log(content.substring(0, 200));
+                console.log("⬆️⬆️⬆️ 诊断结束 ⬆️⬆️⬆️");
+
+                // 检查是否包含 HTML 标签 (典型错误特征)
+                if (content.startsWith("<!DOCTYPE html>") || content.includes("<html")) {
+                    alert("❌ 错误：\n下载到的是 HTML 网页，不是 JS 代码！\n请检查链接是否为 raw.githubusercontent.com 开头。");
+                    console.error("检测到 HTML 标签，停止注入，防止报错。");
+                    return;
+                }
+
+                // 检查是否包含 window.validators (正确特征)
+                if (!content.includes("validators")) {
+                    alert("⚠️ 警告：\n下载的文件里似乎没找到 'validators' 关键字。\n请检查文件内容是否正确。");
+                }
+
+                // 正常注入流程
                 const scriptCache = (await GM.getValue("scriptCache")) || {};
-                scriptCache[VALIDATOR_URL] = newCode;
+                scriptCache[VALIDATOR_URL] = content;
                 await GM.setValue("scriptCache", scriptCache);
                 
-                // 3. 立即注入到当前页面使其生效
                 const s = document.createElement("script");
-                s.innerHTML = newCode;
+                s.innerHTML = content;
                 document.body.appendChild(s);
                 
-                // 4. 验证更新结果
-                // 假设 selectors.js 里更新了 validators 对象
-                const keys = Object.keys(window.validators || {});
-                console.log(`[Updater] 更新成功! 当前包含 ${keys.length} 个规则。`);
-                alert(`更新成功！\n已缓存最新规则。\n当前生效规则数: ${keys.length}`);
+                const count = Object.keys(window.validators || {}).length;
+                console.log(`注入完成。当前 window.validators 包含 ${count} 个规则。`);
+                alert(`更新成功！\n检测到 ${count} 个规则。`);
                 
             } else {
-                throw new Error(`下载失败: ${res.status}`);
+                throw new Error(`网络请求失败: ${res.status}`);
             }
         } catch (e) {
             console.error(e);
-            alert("更新失败: " + e.message);
+            alert("错误: " + e.message);
         } finally {
+            console.groupEnd();
             updateBtn.innerText = "Update Validators";
             updateBtn.disabled = false;
         }

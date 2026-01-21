@@ -1,5 +1,5 @@
 
-const validators = {
+windows.validators = {
   "10.1002": {
     "sel_A": [
       ".article__body .abstract-group .article-section__abstract .article-section__content",
