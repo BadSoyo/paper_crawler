@@ -252,41 +252,61 @@ const crawlerUtil = {
     getPreSignUrl,
     sleep,
   } = crawlerUtil;
-
   const dependenciesInit = async () => {
-    await addScriptByText(
-      "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file-bootstrap.js",
-      true
-    );
-    await addScriptByText(
-      "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file-hooks-frames.js",
-      true
-    );
-    await addScriptByText(
-      "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file-frames.js",
-      true
-    );
-    await addScriptByText(
-      "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file.js",
-      true
+    const scripts = [
+      {
+        url: "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file-bootstrap.js",
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file-hooks-frames.js",
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file-frames.js",
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file.js",
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/gh/IKKEM-Lin/crawler-base-on-singlefile/config.js",
+        cache: false,
+      },
+      {
+        url: VALIDATOR_URL,
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js",
+        cache: false,
+      },
+    ];
+
+    // ① 并行下载所有脚本内容
+    const results = await Promise.all(
+      scripts.map(({ url, cache }) =>
+        addScriptByText(url, cache).then(() => ({ url, ok: true })).catch(err => ({ url, ok: false, err }))
+      )
     );
 
-    await addScriptByText(
-      "https://cdn.jsdelivr.net/gh/IKKEM-Lin/crawler-base-on-singlefile/config.js"
-    );
-    await addScriptByText(
-      VALIDATOR_URL, 
-      true // 平时加载时使用缓存，只有点击更新按钮时才强制刷新
-    );
-    await addScriptByText(
-      "https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"
-    );
+    // ② 失败快速暴露（比现在更可观测）
+    const failed = results.filter(r => !r.ok);
+    if (failed.length) {
+      console.error("[dependenciesInit] Script load failed:", failed);
+      throw new Error("Dependency load failed");
+    }
+
+    // ③ 返回清理函数（保持你原有语义）
     return () => {
-      document.querySelectorAll("script[data-crawler='true']").forEach((el) => {
-        el.parentElement.removeChild(el);
-      });
+      document
+        .querySelectorAll("script[data-crawler='true']")
+        .forEach(el => el.parentElement.removeChild(el));
     };
   };
+
+
 
   const pureHTMLCleaner = (document) => {
     document.querySelectorAll("script").forEach((el) => {
