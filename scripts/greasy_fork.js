@@ -40,6 +40,7 @@ const TIME_POINT_TYPES = {
   SINGLE_FILE_UPLOADED: "singleFileUploaded",
   VALIDATE_FAILED: "validateFailed",
 };
+const VALIDATOR_URL = "https://raw.githubusercontent.com/BadSoyo/paper_crawler/main/scripts/selectors.js";
 
 let gmc = new GM_config({
   id: "CrawlerConfig",
@@ -269,8 +270,8 @@ const crawlerUtil = {
       "https://cdn.jsdelivr.net/gh/IKKEM-Lin/crawler-base-on-singlefile/config.js"
     );
     await addScriptByText(
-      "https://gist.githubusercontent.com/BadSoyo/b36567143720e4596dbd9bfb2166a608/raw/validator.js?t=" + Date.now(),
-      false
+      VALIDATOR_URL, 
+      true // 平时加载时使用缓存，只有点击更新按钮时才强制刷新
     );
     await addScriptByText(
       "https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js"
@@ -329,44 +330,93 @@ const crawlerUtil = {
   }
 
   function AddImportBtn() {
-    const btnWrapImport = document.createElement("div");
-    btnWrapImport.id = "CRAWLER_ID";
-    btnWrapImport.innerHTML = `<button style="padding: 4px 8px;position: fixed;bottom: 40%;right: 8px;border-radius: 4px;background-color: #224466;color: #fff;">Import</button>`;
-    const importBtn = btnWrapImport.querySelector("button");
+    const btnWrap = document.createElement("div");
+    btnWrap.id = "CRAWLER_ID";
+    // 使用 Flex 布局让两个按钮并排
+    btnWrap.style = "position: fixed; bottom: 40%; right: 8px; display: flex; flex-direction: column; gap: 5px; z-index: 9999;";
+    
+    // 1. 定义 Import 按钮
+    const importBtn = document.createElement("button");
+    importBtn.innerText = "Import JSON";
+    importBtn.style = "padding: 6px 12px; border-radius: 4px; background-color: #224466; color: #fff; border: none; cursor: pointer;";
+    
+    // 2. 定义 Update Validators 按钮
+    const updateBtn = document.createElement("button");
+    updateBtn.innerText = "Update Validators";
+    updateBtn.style = "padding: 6px 12px; border-radius: 4px; background-color: #d9534f; color: #fff; border: none; cursor: pointer;";
+
+    // --- Import 点击事件 (保持原逻辑) ---
     importBtn.onclick = async () => {
-      if (
-        !window.confirm(
-          "The data in browser will be clear up. Please make sure you have to do this !!!"
-        )
-      ) {
+      if (!window.confirm("The data in browser will be clear up. Please make sure you have to do this !!!")) {
         return;
       }
       const file = await readFile(".json");
       const reader = new FileReader();
-
       reader.onload = (event) => {
         const json = JSON.parse(event.target.result);
-        if (
-          json instanceof Array &&
-          json.every((item) => item.doi && item.validator)
-        ) {
+        if (json instanceof Array && json.every((item) => item.doi && item.validator)) {
           GM.setValue("tasks", json);
           location.reload();
         } else {
-          alert(
-            "Please upload json file like [{doi: string, validator: string, ...}]"
-          );
+          alert("Please upload json file like [{doi: string, validator: string, ...}]");
         }
       };
-
       reader.readAsText(file);
     };
-    document.body.appendChild(btnWrapImport);
+
+    // --- Update 点击事件 (新增逻辑) ---
+    updateBtn.onclick = async () => {
+        updateBtn.innerText = "Updating...";
+        updateBtn.disabled = true;
+
+        try {
+            console.log("[Updater] 开始获取最新 Validators...");
+            // 1. 强制从网络获取 (加时间戳绕过 GitHub/CDN 缓存)
+            const freshUrl = VALIDATOR_URL + "?t=" + Date.now();
+            
+            const res = await GM.xmlHttpRequest({
+                method: "GET",
+                url: freshUrl
+            });
+
+            if (res.status === 200 && res.responseText) {
+                const newCode = res.responseText;
+                
+                // 2. 更新本地 GM 缓存 (Key 必须与 dependenciesInit 里用的一致，即无参数的 VALIDATOR_URL)
+                const scriptCache = (await GM.getValue("scriptCache")) || {};
+                scriptCache[VALIDATOR_URL] = newCode;
+                await GM.setValue("scriptCache", scriptCache);
+                
+                // 3. 立即注入到当前页面使其生效
+                const s = document.createElement("script");
+                s.innerHTML = newCode;
+                document.body.appendChild(s);
+                
+                // 4. 验证更新结果
+                // 假设 selectors.js 里更新了 validators 对象
+                const keys = Object.keys(window.validators || {});
+                console.log(`[Updater] 更新成功! 当前包含 ${keys.length} 个规则。`);
+                alert(`更新成功！\n已缓存最新规则。\n当前生效规则数: ${keys.length}`);
+                
+            } else {
+                throw new Error(`下载失败: ${res.status}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("更新失败: " + e.message);
+        } finally {
+            updateBtn.innerText = "Update Validators";
+            updateBtn.disabled = false;
+        }
+    };
+
+    btnWrap.appendChild(importBtn);
+    btnWrap.appendChild(updateBtn);
+    document.body.appendChild(btnWrap);
+
     return () => {
-      const importBtn = document.getElementById("CRAWLER_ID");
-      if (importBtn) {
-        importBtn.parentElement.removeChild(importBtn);
-      }
+      const el = document.getElementById("CRAWLER_ID");
+      if (el) el.parentElement.removeChild(el);
     };
   }
 
