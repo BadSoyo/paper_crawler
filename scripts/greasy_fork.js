@@ -634,7 +634,7 @@ const crawlerUtil = {
 
     // 2. 启动看门狗定时器 (60秒后如果还在当前页面，说明卡死了)
     // 注意：这个定时器会在页面卸载(正常跳转)时自动失效
-    const WATCHDOG_TIMEOUT = 60 * 1000; 
+    const WATCHDOG_TIMEOUT = 120 * 1000; 
     const watchdogId = setTimeout(() => {
         forceAbort("Script Execution Timeout (60s limit)");
     }, WATCHDOG_TIMEOUT);
