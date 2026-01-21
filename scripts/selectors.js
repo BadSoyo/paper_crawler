@@ -294,7 +294,7 @@ window.validators = {
 validators["10.1006"] = validators["10.1016"];
 validators["10.1149"] = validators["10.1088"];
 
-const documentFixer = {
+window.documentFixer = {
   10.1088: (document) => {
     const imgs = Array.from(
       document.querySelectorAll('main figure img[data-src^="http"]')

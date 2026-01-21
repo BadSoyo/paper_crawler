@@ -40,7 +40,7 @@ const TIME_POINT_TYPES = {
   SINGLE_FILE_UPLOADED: "singleFileUploaded",
   VALIDATE_FAILED: "validateFailed",
 };
-const VALIDATOR_URL = "https://raw.githubusercontent.com/BadSoyo/paper_crawler/main/scripts/selectors.js";
+const VALIDATOR_URL = "https://raw.githubusercontent.com/BadSoyo/paper_crawler/refs/heads/main/scripts/selectors.js";
 
 let gmc = new GM_config({
   id: "CrawlerConfig",
