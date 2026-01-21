@@ -240,6 +240,89 @@ const crawlerUtil = {
   },
 };
 
+// === presign cache ===
+const PRESIGN_TTL_MS = 8 * 60 * 1000; // 8 min, must be < 15min expiry
+const inFlight = new Map(); // key -> Promise
+
+async function getPreSignUrlCached(fullUrl, cacheKey) {
+  // 1) in-page dedupe
+  if (inFlight.has(cacheKey)) return inFlight.get(cacheKey);
+
+  const p = (async () => {
+    const cache = (await GM.getValue("presignCache")) || {};
+    const hit = cache[cacheKey];
+    const now = Date.now();
+
+    if (hit && now - hit.ts < PRESIGN_TTL_MS) {
+      return hit; // {status,url,msg,ts,...}
+    }
+
+    // 2) request with timeout
+    const TIMEOUT_MS = 6000; // tune
+    const t0 = performance.now();
+
+    try {
+      const res = await Promise.race([
+        GM_fetch(fullUrl).then(r => r.json()),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("presign timeout")), TIMEOUT_MS)),
+      ]);
+
+      const dt = Math.round(performance.now() - t0);
+
+      // 业务返回：{reload:true} / {url:"..."} / {}
+      let out;
+      if (res?.reload) out = { status: "RELOAD", msg: res.error || "server asked reload", ts: now, ms: dt };
+      else if (res?.url) out = { status: "URL", url: res.url, ts: now, ms: dt };
+      else out = { status: "EXIST", ts: now, ms: dt }; // null语义：已存在
+
+      cache[cacheKey] = out;
+      await GM.setValue("presignCache", cache);
+      return out;
+    } catch (e) {
+      const dt = Math.round(performance.now() - t0);
+      const out = { status: "ERROR", msg: String(e?.message || e), ts: now, ms: dt };
+      cache[cacheKey] = out;
+      await GM.setValue("presignCache", cache);
+      return out;
+    } finally {
+      inFlight.delete(cacheKey);
+    }
+  })();
+
+  inFlight.set(cacheKey, p);
+  return p;
+}
+
+// === batch presign for 4 names (keep old format check) ===
+async function getPreSignUrlsForDoi(doi, name, pass, preferServer="") {
+  const configServer = DOMAIN_REG.test(preferServer) ? [preferServer] : [];
+  const servers = configServer.concat(["http://localhost:8000"]);
+
+  const fileNames = ["_.html.gz","_.sf.html.gz","_.html","_.sf.html"];
+
+  // 先挑一个 server（你现在只有 localhost:8000，未来多 server 才需要回退）
+  const server = servers[0];
+
+  const tasks = fileNames.map(async (fileName) => {
+    const url = `${server}/api/presignedPutObject?doi=${doi}&file_name=${fileName}&account=${name}&pass=${pass}`;
+    const cacheKey = `${server}|${doi}|${fileName}|${name}`; // pass不进key，避免泄漏
+    const result = await getPreSignUrlCached(url, cacheKey);
+    return [fileName, result];
+  });
+
+  const entries = await Promise.all(tasks);
+  const map = Object.fromEntries(entries);
+
+  // 失败提示（只打一行）
+  const errors = Object.entries(map).filter(([_, r]) => r.status === "ERROR" || r.status === "RELOAD");
+  if (errors.length) {
+    console.warn("[presign] issues:", errors.map(([fn,r]) => `${fn}:${r.status}:${r.msg}`).join(" | "));
+  }
+
+  return map;
+}
+
+
 // main function
 (function () {
   "use strict";
@@ -797,59 +880,53 @@ const crawlerUtil = {
       );
       return;
     }
+    const presigns = await getPreSignUrlsForDoi(doiFixed, name, pass, preferServer);
 
-    const indexUrl = await getPreSignUrl(doiFixed, `_.html.gz`, name, pass, preferServer);
-    await saveTaskTimepoint(TIME_POINT_TYPES.PRESIGN_INDEX, currentTask, tasks);
-    const singlefileUrl = await getPreSignUrl(
-      doiFixed,
-      `_.sf.html.gz`,
-      name,
-      pass,
-      preferServer
-    );
-    await saveTaskTimepoint(
-      TIME_POINT_TYPES.PRESIGN_SINGLEFILE,
-      currentTask,
-      tasks
-    );
-    
-    // Check PreSign Errors
-    if (indexUrl === "RELOAD" || singlefileUrl === "RELOAD") {
+    const idxNew = presigns["_.html.gz"];
+    const sfNew  = presigns["_.sf.html.gz"];
+    const idxOld = presigns["_.html"];
+    const sfOld  = presigns["_.sf.html"];
+
+    // 1. reload 判定
+    if ([idxNew, sfNew, idxOld, sfOld].some(x => x.status === "RELOAD")) {
       await reload(
         ERROR_RELOAD_LONG_TIME,
         "Minio PreSignUrl error, please check url or account"
       );
       return;
     }
-    
-    // === MODIFIED: 文件已存在 ===
-    if (!indexUrl && !singlefileUrl) {
-      console.error("%cFile existed!!!", printStyle, currentTask.doi);
-      
-      currentTask.failReason = "File already exists on server (PreSign returned null)";
-      await updateCurrentTask(false); // 标记为 false 以避免重复处理，或者你可以根据需求逻辑调整
-      
+
+    // 2. 新 / 旧格式存在判定
+    if ([idxNew, sfNew].every(x => x.status === "EXIST")) {
+      currentTask.failReason = "File already exists on server (New format)";
+      await updateCurrentTask(false);
       await prepareNextTask(nextTask.doi);
       return;
-    } else {
-      const old_index = await getPreSignUrl(doiFixed, `_.html`, name, pass, preferServer);
-      const old_singlefileUrl = await getPreSignUrl(
-        doiFixed,
-        `_.sf.html`,
-        name,
-        pass,
-        preferServer
-      );
-      if (!old_index && !old_singlefileUrl) {
-        console.error("%cFile existed!!!", printStyle, currentTask.doi);
-        
-        currentTask.failReason = "File already exists on server (Old format check)";
-        await updateCurrentTask(false);
-        
-        await prepareNextTask(nextTask.doi);
-        return;
-      }
     }
+
+    if ([idxOld, sfOld].every(x => x.status === "EXIST")) {
+      currentTask.failReason = "File already exists on server (Old format)";
+      await updateCurrentTask(false);
+      await prepareNextTask(nextTask.doi);
+      return;
+    }
+
+    // 3. ERROR 兜底
+    const errors = [idxNew, sfNew].filter(x => x.status === "ERROR");
+    if (errors.length) {
+      currentTask.failReason = `PreSign error: ${errors.map(e => e.msg).join(" | ")}`;
+      await updateCurrentTask(false);
+      await prepareNextTask(nextTask.doi);
+      return;
+    }
+
+    // 4. 真正用于上传的 URL
+    const indexUrl = idxNew.status === "URL" ? idxNew.url : null;
+    const singlefileUrl = sfNew.status === "URL" ? sfNew.url : null;
+
+    // timepoint 保留
+    await saveTaskTimepoint(TIME_POINT_TYPES.PRESIGN_INDEX, currentTask, tasks);
+    await saveTaskTimepoint(TIME_POINT_TYPES.PRESIGN_SINGLEFILE, currentTask, tasks);
 
     // --------------------------- Page validate ------------------------------------------------------
     if (!document.body.textContent.toLowerCase().includes(doi)) {
