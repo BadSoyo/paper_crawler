@@ -858,9 +858,21 @@ async function getPreSignUrlsForDoi(doi, name, pass, preferServer="") {
 
     // -------------------------- Detect Cloudflare challenge -------------------------------------------------------
     // ✅ 等到“有结果”为止：要么出现 CF challenge，要么页面满足校验前置条件，要么超时
+    const isHumanChallengePage = () => {
+      // Cloudflare 旧版
+      if (document.getElementById("challenge-form")) return true;
+
+      // ✅ 新的人机验证页面
+      if (document.querySelector('h1.u-h2')?.textContent?.includes("Are you a robot")) {
+        return true;
+      }
+
+      return false;
+    };
+
     await waitUntil(() => {
       // 1) Cloudflare challenge
-      if (document.getElementById("challenge-form")) return true;
+      if (isHumanChallengePage()) return true;
 
       // 2) DOI 已经出现在正文里（你的后面也会做这个检查，这里只是用来提前结束等待）
       if (document.body?.textContent?.toLowerCase()?.includes(doi)) return true;
@@ -872,7 +884,7 @@ async function getPreSignUrlsForDoi(doi, name, pass, preferServer="") {
     }, { timeoutMs: PAGE_LOADING_TIME * 1000, intervalMs: 200 });
 
     // 等待结束后再判断是否 CF
-    if (document.getElementById("challenge-form")) {
+    if (isHumanChallengePage()) {
       console.log(`%cCloudflare challenge! ${currentTask.doi}`, printStyle);
       await sleep(CF_CHALLENGE_WAITING_TIME);
 
