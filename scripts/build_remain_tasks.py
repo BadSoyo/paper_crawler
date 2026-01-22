@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 BASE_PATH = Path(__file__).resolve().parent.parent / 'task_0120'
-TASK_PATH=BASE_PATH  / 'tasks' / 'task_10.1088.json'
+TASK_PATH=BASE_PATH  / 'tasks' / 'task_10.1108.json'
 DL_PATH=BASE_PATH / 'electrolyte-dois-exported.json' 
 OP_PATH=BASE_PATH / 'remaining_tasks.json'
 
@@ -43,7 +43,7 @@ def filter_remaining_tasks(task_path, downloaded_path, output_path):
             normalized_doi = clean_doi
         
         # 使用转换后的 normalized_doi 进行比对
-        if normalized_doi not in downloaded_set:
+        if normalized_doi.lower() not in downloaded_set:
             remaining_tasks.append(item)
 
     # 4. 输出结果
