@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 BASE_PATH = Path(__file__).resolve().parent.parent / 'task_0120'
-TASK_PATH=BASE_PATH  / 'tasks' / 'task_10.3390.json'
+TASK_PATH=BASE_PATH  / 'tasks' / 'task_10.1088.json'
 DL_PATH=BASE_PATH / 'electrolyte-dois-exported.json' 
 OP_PATH=BASE_PATH / 'remaining_tasks.json'
 
@@ -32,8 +32,18 @@ def filter_remaining_tasks(task_path, downloaded_path, output_path):
         # https://doi.org/10.1016/xxx -> 10.1016/xxx
         clean_doi = raw_doi_url.replace("https://doi.org/", "").strip()
         
-        # 如果这个 DOI 不在已下载集合中，则保留为剩余任务
-        if clean_doi not in downloaded_set:
+        # --- 核心修复点：保留第一个斜杠，替换后续斜杠 ---
+        if "/" in clean_doi:
+            # 仅在第一个斜杠处分割一次
+            parts = clean_doi.split("/", 1) 
+            prefix = parts[0]
+            suffix = parts[1].replace("/", "_") # 后缀部分的斜杠转下划线
+            normalized_doi = f"{prefix}/{suffix}"
+        else:
+            normalized_doi = clean_doi
+        
+        # 使用转换后的 normalized_doi 进行比对
+        if normalized_doi not in downloaded_set:
             remaining_tasks.append(item)
 
     # 4. 输出结果
