@@ -3,7 +3,7 @@ import os
 from pathlib import Path
 
 BASE_PATH = Path(__file__).resolve().parent.parent / 'task_0120'
-TASK_PATH=BASE_PATH  / 'tasks' / 'task_10.1016.json'
+TASK_PATH=BASE_PATH  / 'tasks' / 'task_10.3390.json'
 DL_PATH=BASE_PATH / 'electrolyte-dois-exported.json' 
 OP_PATH=BASE_PATH / 'remaining_tasks.json'
 
