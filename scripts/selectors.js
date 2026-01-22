@@ -292,6 +292,28 @@ window.validators = {
       }
     ]
   },
+  "10.1108": {
+    "sel_A": [
+      "section.abstract .sec p",
+      "section.abstract p"
+    ],
+    "sel_R": "a.xref-bibr",
+    "sel_P": [
+      ".article-section-wrapper > p"
+    ],
+    "sel_F": [
+      ".fig .fig-caption"
+    ],
+    "sel_S": [],
+    "sel_T": [
+      {
+        "wrapper": ".table-wrap",
+        "title": ".table-wrap-title .caption",
+        "table": ".table-overflow table",
+        "footer": ""
+      }
+    ]
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
