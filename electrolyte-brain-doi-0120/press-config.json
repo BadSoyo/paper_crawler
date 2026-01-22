@@ -26,11 +26,19 @@
     ]
   },
   "10.3390": {
-    "sel_A": ["#html-abstract .html-p"],
+    "sel_A": [
+      "#html-abstract .html-p"
+    ],
     "sel_R": "a.html-bibr",
-    "sel_P": ["article .html-body .html-p"],
-    "sel_F": ["article .html-fig-wrap .html-fig_description"],
-    "sel_S": ["article .html-fig-wrap .html-fig_description"],
+    "sel_P": [
+      "article .html-body .html-p"
+    ],
+    "sel_F": [
+      "article .html-fig-wrap .html-fig_description"
+    ],
+    "sel_S": [
+      "article .html-fig-wrap .html-fig_description"
+    ],
     "sel_T": [
       {
         "wrapper": "article .html-table-wrap",
@@ -41,11 +49,19 @@
     ]
   },
   "10.1039": {
-    "sel_A": ["article .capsule__text"],
+    "sel_A": [
+      "article .capsule__text"
+    ],
     "sel_R": "a[href^=\"#cit\"]",
-    "sel_P": ["#pnlArticleContentLoaded > p"],
-    "sel_F": ["#pnlArticleContentLoaded [id^='fig'] figcaption"],
-    "sel_S": ["#pnlArticleContentLoaded [id^='sch'] figcaption"],
+    "sel_P": [
+      "#pnlArticleContentLoaded > p"
+    ],
+    "sel_F": [
+      "#pnlArticleContentLoaded [id^='fig'] figcaption"
+    ],
+    "sel_S": [
+      "#pnlArticleContentLoaded [id^='sch'] figcaption"
+    ],
     "sel_T": [
       {
         "wrapper": "#pnlArticleContentLoaded [id^='tab']",
@@ -56,11 +72,21 @@
     ]
   },
   "10.1021": {
-    "sel_A": ["p.articleBody_abstractText", "#specialIssueNotice"],
+    "sel_A": [
+      "p.articleBody_abstractText",
+      "#specialIssueNotice"
+    ],
     "sel_R": "a[class^=\"ref ref\"]",
-    "sel_P": ["div.NLM_p", ".article_content-left > p"],
-    "sel_F": ["[id^='fig'] figcaption"],
-    "sel_S": ["[id^='sch']"],
+    "sel_P": [
+      "div.NLM_p",
+      ".article_content-left > p"
+    ],
+    "sel_F": [
+      "[id^='fig'] figcaption"
+    ],
+    "sel_S": [
+      "[id^='sch']"
+    ],
     "sel_T": [
       {
         "wrapper": ".NLM_table-wrap",
@@ -71,9 +97,14 @@
     ]
   },
   "10.1038": {
-    "sel_A": ["#Abs1-content", "article [data-title=\"Abstract\"]"],
+    "sel_A": [
+      "#Abs1-content",
+      "article [data-title=\"Abstract\"]"
+    ],
     "sel_R": "a[data-test=\"citation-ref\"]",
-    "sel_P": ["article .main-content .c-article-section__content > p"],
+    "sel_P": [
+      "article .main-content .c-article-section__content > p"
+    ],
     "sel_F": [
       "article .main-content figure .c-article-section__figure-caption"
     ],
@@ -88,10 +119,16 @@
     ]
   },
   "10.1007": {
-    "sel_A": ["#Abs1-content p"],
+    "sel_A": [
+      "#Abs1-content p"
+    ],
     "sel_R": "a[id^=\"ref\"]",
-    "sel_P": [".main-content .c-article-section__content > p"],
-    "sel_F": [".main-content figure .c-article-section__figure-description"],
+    "sel_P": [
+      ".main-content .c-article-section__content > p"
+    ],
+    "sel_F": [
+      ".main-content figure .c-article-section__figure-description"
+    ],
     "sel_S": [],
     "sel_T": [
       {
@@ -103,12 +140,16 @@
     ]
   },
   "10.1088": {
-    "sel_A": [".wd-jnl-art-abstract > p"],
+    "sel_A": [
+      ".wd-jnl-art-abstract > p"
+    ],
     "sel_R": "a[id^=\"fnref-\"]",
     "sel_P": [
       ":where( div[itemprop=\"articleBody\"] >  p, div[itemprop=\"articleBody\"] > .article-text > p, div[itemprop=\"articleBody\"] > .article-text > .article-text > p, div[itemprop=\"articleBody\"] > .article-text > .article-text > .article-text > p)"
     ],
-    "sel_F": [".article-text figure figcaption .article-text"],
+    "sel_F": [
+      ".article-text figure figcaption .article-text"
+    ],
     "sel_S": [],
     "sel_T": [
       {
@@ -120,10 +161,16 @@
     ]
   },
   "10.1063": {
-    "sel_A": ["#ContentTab .abstract p"],
+    "sel_A": [
+      "#ContentTab .abstract p"
+    ],
     "sel_R": "a.link-ref.xref-bibr",
-    "sel_P": ["#ContentTab .article-section-wrapper > p"],
-    "sel_F": ["#ContentTab .article-section-wrapper .fig-section .fig-caption"],
+    "sel_P": [
+      "#ContentTab .article-section-wrapper > p"
+    ],
+    "sel_F": [
+      "#ContentTab .article-section-wrapper .fig-section .fig-caption"
+    ],
     "sel_S": [],
     "sel_T": [
       {
@@ -135,10 +182,16 @@
     ]
   },
   "10.1126": {
-    "sel_A": ["[role=\"doc-abstract\"] > [role=\"paragraph\"]"],
+    "sel_A": [
+      "[role=\"doc-abstract\"] > [role=\"paragraph\"]"
+    ],
     "sel_R": "a[role=\"doc-biblioref\"]",
-    "sel_P": ["#bodymatter [role=\"paragraph\"]"],
-    "sel_F": ["#bodymatter .figure-wrap figure[id^='F'] figcaption"],
+    "sel_P": [
+      "#bodymatter [role=\"paragraph\"]"
+    ],
+    "sel_F": [
+      "#bodymatter .figure-wrap figure[id^='F'] figcaption"
+    ],
     "sel_S": [],
     "sel_T": [
       {
@@ -154,8 +207,12 @@
       ".article__sections section:first-child:not(section[id^=\"cesec\"])"
     ],
     "sel_R": "a[role=\"doc-biblioref\"]",
-    "sel_P": [".article__sections section[id^=\"cesec\"] > .section-paragraph"],
-    "sel_F": [".article__sections figure figcaption .figure__title"],
+    "sel_P": [
+      ".article__sections section[id^=\"cesec\"] > .section-paragraph"
+    ],
+    "sel_F": [
+      ".article__sections figure figcaption .figure__title"
+    ],
     "sel_S": [],
     "sel_T": [
       {
@@ -192,7 +249,9 @@
     ]
   },
   "10.1186": {
-    "sel_A": ["[data-title=\"Abstract\"] .c-article-section__content"],
+    "sel_A": [
+      "[data-title=\"Abstract\"] .c-article-section__content"
+    ],
     "sel_R": "a[data-test=\"citation-ref\"]",
     "sel_P": [
       "article section:not([data-title=\"Abstract\"]):not(#MagazineFulltextArticleBodySuffix ~ section) .c-article-section__content > p"
@@ -213,11 +272,19 @@
     ]
   },
   "10.3762": {
-    "sel_A": ["#articleContent #abstract p"],
+    "sel_A": [
+      "#articleContent #abstract p"
+    ],
     "sel_R": "a[id^=\"link\"]",
-    "sel_P": ["#articleContent .text-bs > p"],
-    "sel_F": ["#articleContent figure img[id^='figure']~figcaption > p"],
-    "sel_S": ["#articleContent figure img[id^='scheme']~figcaption > p"],
+    "sel_P": [
+      "#articleContent .text-bs > p"
+    ],
+    "sel_F": [
+      "#articleContent figure img[id^='figure']~figcaption > p"
+    ],
+    "sel_S": [
+      "#articleContent figure img[id^='scheme']~figcaption > p"
+    ],
     "sel_T": [
       {
         "wrapper": "#articleContent a[id^='T'] ~ figure",
@@ -228,10 +295,16 @@
     ]
   },
   "10.1371": {
-    "sel_A": [".article-content .abstract-content p"],
+    "sel_A": [
+      ".article-content .abstract-content p"
+    ],
     "sel_R": "a.ref-tip[href*=ref]",
-    "sel_P": [".article-content #artText div[id^=\"section\"] > p"],
-    "sel_F": [".article-content .figure :where(.figcaption, .figcaption~p)"],
+    "sel_P": [
+      ".article-content #artText div[id^=\"section\"] > p"
+    ],
+    "sel_F": [
+      ".article-content .figure :where(.figcaption, .figcaption~p)"
+    ],
     "sel_S": [],
     "sel_T": [
       {
@@ -280,14 +353,21 @@
       "#body section[id^=aep-section] :where(h2,h3,h4) ~ div",
       "#body section[id^=sec] :where(h2,h3,h4) ~ div"
     ],
-    "sel_F": ["div#body figure .captions"],
-    "sel_S": ["div#body figure .captions"],
+    "sel_F": [
+      "div#body figure .captions"
+    ],
+    "sel_S": [
+      "div#body figure .captions"
+    ],
     "sel_T": [
       {
         "wrapper": "div#body  .tables",
         "title": ".captions",
         "table": "table",
-        "footer": [".footnotes", ".legend ~ p"]
+        "footer": [
+          ".footnotes",
+          ".legend ~ p"
+        ]
       }
     ]
   },
