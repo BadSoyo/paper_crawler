@@ -456,6 +456,30 @@
       }
     ]
   },
+  "10.1080": {
+    "sel_A": [
+      ".hlFld-Abstract p",
+      "#abstractId1 p"
+    ],
+    "sel_R": "a[data-ref-type=\"bibr\"]",
+    "sel_P": [
+      ".NLM_sec > p",
+      ".hlFld-Fulltext .NLM_sec > p"
+    ],
+    "sel_F": [
+      ".figureView .captionText",
+      ".figureView .short-legend p"
+    ],
+    "sel_S": [],
+    "sel_T": [
+      {
+        "wrapper": ".tableView",
+        "title": ".tableCaption .captionText",
+        "table": "table",
+        "footer": ".table-footer"
+      }
+    ]
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
