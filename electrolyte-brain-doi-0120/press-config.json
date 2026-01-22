@@ -435,6 +435,27 @@
     "sel_S": [],
     "sel_T": []
   },
+  "10.1089": {
+    "sel_A": [
+      "#abstract div[role='paragraph']"
+    ],
+    "sel_R": "a[role='doc-biblioref']",
+    "sel_P": [
+      "#bodymatter div[role='paragraph']"
+    ],
+    "sel_F": [
+      "figure.graphic figcaption"
+    ],
+    "sel_S": [],
+    "sel_T": [
+      {
+        "wrapper": "figure.table",
+        "title": "figcaption",
+        "table": "table",
+        "footer": ".notes"
+      }
+    ]
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
