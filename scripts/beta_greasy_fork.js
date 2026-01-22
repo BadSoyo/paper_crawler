@@ -1,0 +1,1079 @@
+// ==UserScript==
+// @name              Crawler base on SingleFile (Debug & Fail Log)
+// @author            Mark & Modified
+// @description       Download site in single file automatically with Failure Logging
+// @license           MIT
+// @version           0.0.22
+// @match             https://*/*
+// @run-at            document-idle
+// @grant             GM.setValue
+// @grant             GM.getValue
+// @grant             GM.xmlHttpRequest
+// @grant             GM_registerMenuCommand
+// @grant             unsafeWindow
+// @require           https://update.greasyfork.org/scripts/483730/1305396/gm-fetch.js
+// @require           https://openuserjs.org/src/libs/sizzle/GM_config.js
+// @connect           *
+// @noframes
+// @namespace         https://greasyfork.org/users/1106595
+// ==/UserScript==
+
+const REPORT_ADDRESS = "https://crawler-hit.deno.dev/api/update"; // report server address
+const PAGE_LOADING_TIME = 7;
+const ERROR_RELOAD_TIME = 10;
+const ERROR_RELOAD_LONG_TIME = 60;
+const NEXT_TASK_WAITING_TIME = 10;
+
+const NO_TASK_WAITING_TIME = 90;
+const CF_CHALLENGE_WAITING_TIME = 20;
+const QUICK_SLEEP_TIME = 5;
+const DOMAIN_REG = /^(https?):\/\/([^\s\/?\.#]+\.?)+$/;
+const TASK_MAX_RETRY_TIMES = 3;
+const TIME_POINT_TYPES = {
+  PREPARE_START: "prepareStart",
+  TASK_LOADED: "taskLoaded",
+  TASK_REPORTED: "taskReported",
+  PRESIGN_INDEX: "presignIndex",
+  PRESIGN_SINGLEFILE: "presignSinglefile",
+  SINGLE_FILE_SUCCESS: "singleFileSuccess",
+  INDEX_FILE_UPLOADED: "indexFileUploaded",
+  SINGLE_FILE_UPLOADED: "singleFileUploaded",
+  VALIDATE_FAILED: "validateFailed",
+};
+const VALIDATOR_URL = "https://raw.githubusercontent.com/BadSoyo/paper_crawler/refs/heads/main/scripts/selectors.js";
+
+let gmc = new GM_config({
+  id: "CrawlerConfig",
+  title: "Crawler setting",
+  fields: {
+    Name: {
+      label: "Name",
+      type: "text",
+    },
+    Password: {
+      label: "Password",
+      type: "text",
+    },
+    taskInterval: {
+      label: "Task Interval (s)",
+      type: "int",
+      default: NEXT_TASK_WAITING_TIME,
+    },
+    taskMaxRetryTimes: {
+      label: "Task Max Retry Times",
+      type: "int",
+      default: TASK_MAX_RETRY_TIMES,
+    },
+    preferServer: {
+      label: "Prefer preSign Server",
+      type: "text",
+    },
+    reportServer: {
+      label: "Report Server",
+      type: "text",
+      default: REPORT_ADDRESS,
+    },
+  },
+  events: {
+    init: function () {
+      // runs after initialization completes
+    },
+    save: function () {
+      // runs after values are saved
+      console.log("save", this.get("Name"), this.get("Password"));
+      this.close();
+    },
+  },
+});
+
+const crawlerUtil = {
+  addScript: (url) => {
+    const s = document.createElement("script");
+    s.src = url;
+    s.onerror = () => {
+      setTimeout(() => {
+        crawlerUtil.addScript(url);
+      }, 2000);
+    };
+    document.body.append(s);
+  },
+
+  addScriptByText: async (url, cache = false, retry = 0) => {
+    const s = document.createElement("script");
+    s.dataset.crawler = "true";
+    const scriptCache = (await GM.getValue("scriptCache")) || {};
+
+    if (cache && scriptCache[url]) {
+      s.innerHTML = scriptCache[url];
+      document.body.append(s);
+      return true;
+    }
+
+    try {
+      const res = await GM.xmlHttpRequest({
+        url,
+        method: "GET",
+      });
+
+      const text = res.responseText;
+      if (cache) {
+        scriptCache[url] = text;
+        await GM.setValue("scriptCache", scriptCache);
+      }
+
+      s.innerHTML = text;
+      document.body.append(s);
+      return true;
+    } catch (error) {
+      if (retry > 3) return false;
+      await crawlerUtil.sleep(2);
+      return crawlerUtil.addScriptByText(url, cache, retry + 1);
+    }
+  },
+
+  // ---------------- Presign ----------------
+  getPreSignUrl: async (doi, fileName, name, pass, preferServer = "") => {
+    const configServer = DOMAIN_REG.test(preferServer) ? [preferServer] : [];
+    const preSignSevers = configServer.concat([
+      "http://localhost:8000",
+    ]);
+
+    async function getPreSignUrlFromServer(serverIndex = 0) {
+      const server = preSignSevers[serverIndex];
+      try {
+        return await (
+          await GM_fetch(
+            `${server}/api/presignedPutObject?doi=${doi}&file_name=${fileName}&account=${name}&pass=${pass}`
+          )
+        ).json();
+      } catch (error) {
+        console.warn(
+          `[PreSign] Failed on server ${server} (${serverIndex + 1}/${preSignSevers.length})`,
+          error
+        );
+
+        if (!preSignSevers[serverIndex + 1]) {
+          console.error("[PreSign] All presign servers failed, require reload.");
+          return { reload: true };
+        }
+        return getPreSignUrlFromServer(serverIndex + 1);
+      }
+    }
+
+    const preSignRes = await getPreSignUrlFromServer();
+    if (preSignRes?.reload) return "RELOAD";
+    return preSignRes?.url || null;
+  },
+
+  // ---------------- Upload Warm-Up ----------------
+  __uploadWarmupDone: new Set(),
+
+  warmUpOrigin: async (origin) => {
+    if (crawlerUtil.__uploadWarmupDone.has(origin)) return;
+    crawlerUtil.__uploadWarmupDone.add(origin);
+
+    try {
+      await GM.xmlHttpRequest({
+        method: "GET",
+        url: origin + "/",
+        timeout: 5000,
+      });
+      console.log(`[Warmup] Connection ready: ${origin}`);
+    } catch (e) {
+      // 预热失败不影响正式上传
+      console.warn(`[Warmup] Failed (ignored): ${origin}`, e);
+    }
+  },
+
+  // ---------------- Uploader ----------------
+  uploader: async (url, content) => {
+    const origin = new URL(url).origin;
+    await crawlerUtil.warmUpOrigin(origin);
+
+    const startTime = Date.now();
+    const fileSizeMB = (content.length / 1024 / 1024).toFixed(2);
+    console.log(
+      `%c[诊断] 开始上传 | 文件大小: ${fileSizeMB} MB | 目标: ${url}`,
+      "color: purple; font-weight: bold;"
+    );
+
+    const mime = "application/gzip";
+    const gzip_data = pako.gzip(content, { level: 9 });
+    const upload_blob = new Blob([gzip_data], { type: mime });
+
+    console.log(
+      `[诊断] GZIP 压缩后大小: ${(upload_blob.size / 1024 / 1024).toFixed(2)} MB`
+    );
+
+    try {
+      const response = await GM.xmlHttpRequest({
+        method: "PUT",
+        url,
+        timeout: 120000,
+        headers: {
+          "Content-Type": mime,
+          "Content-Length": upload_blob.size,
+        },
+        data: upload_blob,
+      });
+
+      const duration = ((Date.now() - startTime) / 1000).toFixed(2);
+      console.log(`[诊断] 请求结束，耗时: ${duration}s, 状态码: ${response.status}`);
+
+      if (response.status >= 400) {
+        console.error(`[诊断-服务端错误] 响应内容: ${response.responseText}`);
+        console.error(`[诊断-服务端错误] 响应头: ${response.responseHeaders}`);
+        throw new Error(`Upload failed with status ${response.status}`);
+      }
+
+      return response;
+    } catch (e) {
+      console.error("[DEBUG] uploader 捕获异常:", e);
+      throw e;
+    }
+  },
+
+  // ---------------- Utils ----------------
+  downloadFile: (data, fileName) => {
+    const a = document.createElement("a");
+    document.body.appendChild(a);
+    a.style = "display: none";
+    const blob = new Blob([data], { type: "application/octet-stream" });
+    const url = window.URL.createObjectURL(blob);
+    a.href = url;
+    a.download = fileName;
+    a.click();
+    window.URL.revokeObjectURL(url);
+  },
+
+  generateClientId: () =>
+    (1e6 * Math.random()).toString(32).replace(".", ""),
+
+  sleep: (duration) =>
+    new Promise((res) => setTimeout(res, duration * 1000)),
+};
+
+
+// === presign cache ===
+const PRESIGN_TTL_MS = 8 * 60 * 1000; // 8 min, must be < 15min expiry
+const inFlight = new Map(); // key -> Promise
+
+async function getPreSignUrlCached(fullUrl, cacheKey) {
+  // 1) in-page dedupe
+  if (inFlight.has(cacheKey)) return inFlight.get(cacheKey);
+
+  const p = (async () => {
+    const cache = (await GM.getValue("presignCache")) || {};
+    const hit = cache[cacheKey];
+    const now = Date.now();
+
+    if (hit && now - hit.ts < PRESIGN_TTL_MS) {
+      return hit; // {status,url,msg,ts,...}
+    }
+
+    // 2) request with timeout
+    const TIMEOUT_MS = 6000; // tune
+    const t0 = performance.now();
+
+    try {
+      const res = await Promise.race([
+        GM_fetch(fullUrl).then(r => r.json()),
+        new Promise((_, rej) => setTimeout(() => rej(new Error("presign timeout")), TIMEOUT_MS)),
+      ]);
+
+      const dt = Math.round(performance.now() - t0);
+
+      // 业务返回：{reload:true} / {url:"..."} / {}
+      let out;
+      if (res?.reload) out = { status: "RELOAD", msg: res.error || "server asked reload", ts: now, ms: dt };
+      else if (res?.url) out = { status: "URL", url: res.url, ts: now, ms: dt };
+      else out = { status: "EXIST", ts: now, ms: dt }; // null语义：已存在
+
+      cache[cacheKey] = out;
+      await GM.setValue("presignCache", cache);
+      return out;
+    } catch (e) {
+      const dt = Math.round(performance.now() - t0);
+      const out = { status: "ERROR", msg: String(e?.message || e), ts: now, ms: dt };
+      cache[cacheKey] = out;
+      await GM.setValue("presignCache", cache);
+      return out;
+    } finally {
+      inFlight.delete(cacheKey);
+    }
+  })();
+
+  inFlight.set(cacheKey, p);
+  return p;
+}
+
+// === batch presign for 4 names (keep old format check) ===
+async function getPreSignUrlsForDoi(doi, name, pass, preferServer="") {
+  const configServer = DOMAIN_REG.test(preferServer) ? [preferServer] : [];
+  const servers = configServer.concat(["http://localhost:8000"]);
+
+  const fileNames = ["_.html.gz","_.sf.html.gz","_.html","_.sf.html"];
+
+  // 先挑一个 server（你现在只有 localhost:8000，未来多 server 才需要回退）
+  const server = servers[0];
+
+  const tasks = fileNames.map(async (fileName) => {
+    const url = `${server}/api/presignedPutObject?doi=${doi}&file_name=${fileName}&account=${name}&pass=${pass}`;
+    const cacheKey = `${server}|${doi}|${fileName}|${name}`; // pass不进key，避免泄漏
+    const result = await getPreSignUrlCached(url, cacheKey);
+    return [fileName, result];
+  });
+
+  const entries = await Promise.all(tasks);
+  const map = Object.fromEntries(entries);
+
+  // 失败提示（只打一行）
+  const errors = Object.entries(map).filter(([_, r]) => r.status === "ERROR" || r.status === "RELOAD");
+  if (errors.length) {
+    console.warn("[presign] issues:", errors.map(([fn,r]) => `${fn}:${r.status}:${r.msg}`).join(" | "));
+  }
+
+  return map;
+}
+
+
+// main function
+(function () {
+  "use strict";
+  const {
+    addScript,
+    addScriptByText,
+    generateClientId,
+    uploader,
+    downloadFile,
+    getPreSignUrl,
+    sleep,
+  } = crawlerUtil;
+  const dependenciesInit = async () => {
+    const scripts = [
+      {
+        url: "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file-bootstrap.js",
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file-hooks-frames.js",
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file-frames.js",
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/gh/gildas-lormeau/SingleFile-MV3/lib/single-file.js",
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/gh/IKKEM-Lin/crawler-base-on-singlefile/config.js",
+        cache: false,
+      },
+      {
+        url: VALIDATOR_URL,
+        cache: true,
+      },
+      {
+        url: "https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js",
+        cache: false,
+      },
+    ];
+
+    // ① 并行下载所有脚本内容
+    const results = await Promise.all(
+      scripts.map(({ url, cache }) =>
+        addScriptByText(url, cache).then(() => ({ url, ok: true })).catch(err => ({ url, ok: false, err }))
+      )
+    );
+
+    // ② 失败快速暴露（比现在更可观测）
+    const failed = results.filter(r => !r.ok);
+    if (failed.length) {
+      console.error("[dependenciesInit] Script load failed:", failed);
+      throw new Error("Dependency load failed");
+    }
+
+    // ③ 返回清理函数（保持你原有语义）
+    return () => {
+      document
+        .querySelectorAll("script[data-crawler='true']")
+        .forEach(el => el.parentElement.removeChild(el));
+    };
+  };
+
+  async function waitUntil(pred, {
+    timeoutMs = 7000,
+    intervalMs = 200,
+  } = {}) {
+    const start = Date.now();
+    while (true) {
+      try {
+        if (pred()) return true;
+      } catch (_) {}
+      if (Date.now() - start >= timeoutMs) return false;
+      await sleep(intervalMs / 1000);
+    }
+  }
+
+
+
+
+  const pureHTMLCleaner = (document) => {
+    document.querySelectorAll("script").forEach((el) => {
+      el.parentElement.removeChild(el);
+    });
+    document.querySelectorAll("style").forEach((el) => {
+      el.parentElement.removeChild(el);
+    });
+  };
+
+  window.unsafeWindow.fetch = async (...args) => {
+    return await fetch(...args).catch(async (err) => {
+      return await GM_fetch(...args);
+    });
+  };
+
+  async function reload(waiting = 60, message = "") {
+    console.warn(`%c${message}, reload ${waiting}s later`, printStyle);
+    await sleep(waiting);
+    location.reload();
+  }
+
+  function readFile(accept = "", multiple = false) {
+    const inputEl = document.createElement("input");
+    inputEl.setAttribute("type", "file");
+    inputEl.setAttribute("accept", accept);
+    inputEl.setAttribute("multiple", !!multiple);
+    return new Promise((resolve, reject) => {
+      inputEl.addEventListener("change", (e) => {
+        resolve(multiple ? inputEl.files : inputEl.files[0]);
+        window.removeEventListener("click", onWindowClick, true);
+      });
+      document.body.append(inputEl);
+      inputEl.click();
+
+      const onWindowClick = () => {
+        if (!inputEl.value) {
+          reject(new Error("用户取消选择"));
+        }
+        window.removeEventListener("click", onWindowClick, true);
+      };
+      setTimeout(() => {
+        window.addEventListener("click", onWindowClick, true);
+      }, 100);
+    });
+  }
+
+  function AddImportBtn() {
+    const btnWrap = document.createElement("div");
+    btnWrap.id = "CRAWLER_ID";
+    btnWrap.style = "position: fixed; bottom: 40%; right: 8px; display: flex; flex-direction: column; gap: 5px; z-index: 9999;";
+    
+    // Import 按钮 (保持不变)
+    const importBtn = document.createElement("button");
+    importBtn.innerText = "Import JSON";
+    importBtn.style = "padding: 6px 12px; border-radius: 4px; background-color: #224466; color: #fff; border: none; cursor: pointer;";
+    
+    // Update 按钮 (CSP 安全版)
+    const updateBtn = document.createElement("button");
+    updateBtn.innerText = "Update Validators";
+    updateBtn.style = "padding: 6px 12px; border-radius: 4px; background-color: #d9534f; color: #fff; border: none; cursor: pointer;";
+
+    // --- Import 点击事件 ---
+    importBtn.onclick = async () => {
+      if (!window.confirm("The data in browser will be clear up. Please make sure you have to do this !!!")) { return; }
+      const file = await readFile(".json");
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const json = JSON.parse(event.target.result);
+        if (json instanceof Array && json.every((item) => item.doi && item.validator)) {
+          GM.setValue("tasks", json);
+          location.reload();
+        } else {
+          alert("Please upload json file like [{doi: string, validator: string, ...}]");
+        }
+      };
+      reader.readAsText(file);
+    };
+
+    // --- Update 点击事件 (文本解析模式) ---
+    updateBtn.onclick = async () => {
+        updateBtn.innerText = "Updating...";
+        updateBtn.disabled = true;
+
+        try {
+            // 使用你指定的 refs/heads 链接
+            const freshUrl = "https://raw.githubusercontent.com/BadSoyo/paper_crawler/refs/heads/main/scripts/selectors.js?t=" + Date.now();
+            console.log("[Updater] Requesting:", freshUrl);
+            
+            const res = await GM.xmlHttpRequest({ method: "GET", url: freshUrl });
+
+            if (res.status === 200 && res.responseText) {
+                let content = res.responseText.trim();
+
+                // 1. 提取 validators 主体对象
+                // 匹配 window.validators = { ... } 或 validators = { ... }
+                let valMatch = content.match(/(?:window\.|const\s+|let\s+|var\s+)?validators\s*=\s*(\{[\s\S]*?\})\s*;/);
+                // 备选: 如果没有分号结尾
+                if (!valMatch) valMatch = content.match(/(?:window\.|const\s+|let\s+|var\s+)?validators\s*=\s*(\{[\s\S]*\})/);
+
+                if (valMatch && valMatch[1]) {
+                    let jsonStr = valMatch[1];
+                    
+                    // 2. 清洗 JSON 格式 (即使 GitHub 文件很标准，防一手尾部逗号)
+                    // 移除数组或对象末尾的逗号 (JSON.parse 不允许)
+                    jsonStr = jsonStr.replace(/,(\s*[}\]])/g, '$1');
+
+                    try {
+                        // 3. 解析并应用
+                        const newValidators = JSON.parse(jsonStr);
+                        window.validators = newValidators;
+                        
+                        // 4. 手动解析底部的别名映射 (Alias)
+                        // 匹配模式: validators["A"] = validators["B"];
+                        // 同时兼容带 window. 前缀和不带的情况
+                        const aliasRegex = /(?:window\.)?validators\[["']([^"']+)["']\]\s*=\s*(?:window\.)?validators\[["']([^"']+)["']\]/g;
+                        let aliasMatch;
+                        let aliasCount = 0;
+                        while ((aliasMatch = aliasRegex.exec(content)) !== null) {
+                            const [_, key, target] = aliasMatch;
+                            if (window.validators[target]) {
+                                window.validators[key] = window.validators[target];
+                                aliasCount++;
+                            }
+                        }
+
+                        // 5. 更新本地缓存 (用于下次刷新页面时 dependenciesInit 加载)
+                        // 我们缓存下载下来的原始内容，因为页面初始化时是用 script 标签加载的，需要完整代码
+                        const scriptCache = (await GM.getValue("scriptCache")) || {};
+                        // 注意：这里要把 URL 的参数去掉，对应 dependenciesInit 里的 key
+                        const cacheKey = "https://raw.githubusercontent.com/BadSoyo/paper_crawler/refs/heads/main/scripts/selectors.js";
+                        scriptCache[cacheKey] = content;
+                        await GM.setValue("scriptCache", scriptCache);
+
+                        const count = Object.keys(window.validators).length;
+                        console.log(`[Updater] Success. Rules: ${count}, Aliases: ${aliasCount}`);
+                        alert(`✅ 更新成功！\n\n当前规则总数: ${count}\n包含映射: ${aliasCount} 个\n(documentFixer 未更新，需刷新页面生效)`);
+
+                    } catch (e) {
+                        console.error("[Updater] JSON Parse Error:", e);
+                        console.log("Error part:", jsonStr.substring(0, 500));
+                        alert("❌ 解析失败：GitHub 文件中的 validators 对象格式有误。\n请确保它是标准的 JSON 格式 (key带双引号，无尾部逗号)。");
+                    }
+                } else {
+                    alert("❌ 未能在代码中通过正则匹配到 validators 对象。\n请检查文件开头是否为 'window.validators = {'");
+                }
+            } else {
+                alert(`❌ 网络请求失败: ${res.status}`);
+            }
+        } catch (e) {
+            console.error(e);
+            alert("更新流程出错: " + e.message);
+        } finally {
+            updateBtn.innerText = "Update Validators";
+            updateBtn.disabled = false;
+        }
+    };
+
+    btnWrap.appendChild(importBtn);
+    btnWrap.appendChild(updateBtn);
+    document.body.appendChild(btnWrap);
+
+    return () => {
+      const el = document.getElementById("CRAWLER_ID");
+      if (el) el.parentElement.removeChild(el);
+    };
+  }
+
+  // === NEW: 导出所有任务（原始功能） ===
+  GM_registerMenuCommand("Download All Tasks", async () => {
+    const taskData = await GM.getValue("tasks");
+    const waitingTasks = taskData.filter(
+      (task) =>
+        !task.downloaded &&
+        task.validated === undefined &&
+        validators[task.validator]
+    );
+    const now = new Date();
+    downloadFile(
+      JSON.stringify(taskData, null, 2),
+      `Full-Export-${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}.json`
+    );
+  });
+
+  // === NEW: 仅导出失败的任务 (包含原因) ===
+  GM_registerMenuCommand("Download Failed Tasks", async () => {
+    const taskData = await GM.getValue("tasks");
+    // 筛选条件: validated === false (明确失败) 或者有 failReason
+    const failedTasks = taskData.filter((task) => task.validated === false || task.failReason);
+    
+    if (failedTasks.length === 0) {
+        alert("暂无失败任务记录。");
+        return;
+    }
+
+    const output = failedTasks.map(t => ({
+        doi: t.doi,
+        validator: t.validator,
+        failReason: t.failReason || "Unknown Failure",
+        retryTimes: t.retryTimes
+    }));
+
+    const now = new Date();
+    downloadFile(
+      JSON.stringify(output, null, 2),
+      `Failed-Tasks-${now.getFullYear()}-${now.getMonth() + 1}-${now.getDate()}.json`
+    );
+  });
+
+  GM_registerMenuCommand("Config", async () => {
+    gmc.open();
+  });
+
+  const printStyle = "color: blue;background-color: #ccc;font-size: 20px";
+
+  const prepareNextTask = async (nextDoi) => {
+    const taskInterval = gmc.get("taskInterval") || NEXT_TASK_WAITING_TIME;
+    if (nextDoi) {
+      console.log(
+        `%cStart next task ${taskInterval}s later...`,
+        printStyle,
+        nextDoi
+      );
+      await sleep(taskInterval);
+      const taskData = await GM.getValue("tasks");
+      const task = taskData.find((task) => task.doi === nextDoi);
+      await saveTaskTimepoint(TIME_POINT_TYPES.PREPARE_START, task, taskData);
+      location.href = nextDoi;
+    } else {
+      await reload(NO_TASK_WAITING_TIME, "No tasks waiting");
+    }
+  };
+
+  let lasestTimepoint = 0;
+  const saveTaskTimepoint = async (pointName, task, taskData) => {
+    if (pointName === TIME_POINT_TYPES.PREPARE_START) {
+      task[`timePoint_${pointName}`] = new Date().valueOf()
+    }
+    else {
+      if (lasestTimepoint == 0) {
+        lasestTimepoint = task[`timePoint_${TIME_POINT_TYPES.PREPARE_START}`] || 0;
+      }
+      if (lasestTimepoint == 0) {
+        task[`timePoint_${pointName}`] = 0;
+      } else {
+        task[`timePoint_${pointName}`] = new Date().valueOf() - lasestTimepoint;
+      }
+      lasestTimepoint = new Date().valueOf();
+    }
+    await GM.setValue("tasks", taskData);
+  };
+
+  // === MODIFIED: checkRetry 增加 reason 参数 ===
+  const checkRetry = async (task, taskData, nextDoi, failReason = "Unknown Retry Error") => {
+    const taskMaxRetryTimes = gmc.get("taskMaxRetryTimes") || TASK_MAX_RETRY_TIMES;
+    const retryTimes = task.retryTimes || 0;
+    let result = true;
+    
+    if (retryTimes >= taskMaxRetryTimes) {
+      console.log(`%cTask have been retry ${taskMaxRetryTimes} times! ${task.doi}`, printStyle);
+      
+      // 达到最大重试次数，标记彻底失败并记录原因
+      task.validated = false;
+      task.failReason = `Max retries exceeded. Last Error: ${failReason}`;
+      task.updateTime = new Date().valueOf();
+      
+      await prepareNextTask(nextDoi);
+      result = false;
+    } else {
+      task.retryTimes = retryTimes + 1;
+      // 记录本次重试的原因，虽然还未彻底失败
+      task.lastError = failReason; 
+    }
+    await GM.setValue("tasks", taskData);
+    return result;
+  }
+
+  async function start() {
+    console.log(new Date());
+
+    const importBtnHandler = AddImportBtn();
+
+    let clientId = await GM.getValue("clientId");
+    if (typeof clientId !== "string" || !clientId) {
+      clientId = generateClientId();
+      await GM.setValue("clientId", clientId);
+    }
+
+    const dependenciesHandler = await dependenciesInit();
+
+    if (!singlefile || !singlefile.getPageData) {
+      await reload(ERROR_RELOAD_TIME, `singlefile error! ${currentTask.doi}`);
+      return;
+    }
+
+    if (!(validators && DEFAULT_CONFIG)) {
+      await reload(
+        ERROR_RELOAD_TIME,
+        "Can not get validators or DEFAULT_CONFIG"
+      );
+      return;
+    }
+
+    // ---------------------------- Get Task -----------------------------------------------------
+    const taskData = await GM.getValue("tasks");
+    let tasks = taskData || [];
+
+    // find task which not downloaded and not validated before
+    // ================= DEBUG START =================
+    console.log("DEBUG: 检查全局 validators 对象:", validators);
+
+    // ================= [修改开始] =================
+    // 1. 改为只筛选“未完成”的任务 (暂时不检查 validator 是否存在，以免它被默默过滤掉)
+    const waitingTasks = tasks.filter((task) => 
+        !task.downloaded && task.validated === undefined
+    );
+
+    console.log(
+      `%cPending tasks(${waitingTasks.length} / ${tasks.length}):`,
+      printStyle,
+      waitingTasks
+    );
+
+    if (!waitingTasks.length) {
+      await reload(NO_TASK_WAITING_TIME, "No tasks waiting");
+      return;
+    }
+    
+    // 获取当前要执行的任务
+    const currentTask = waitingTasks[0];
+    const nextTask = waitingTasks[1] || {};
+    
+    // ============================================================
+    // 🛡️ 安全机制：看门狗 & 环境检测 (防止卡死)
+    // ============================================================
+
+    // 1. 定义强制跳转函数 (用于超时或严重错误)
+    const forceAbort = async (reason) => {
+        console.error(`☠️ [Watchdog] 触发强制中止: ${reason}`);
+        currentTask.validated = false;
+        currentTask.failReason = `[Force Abort] ${reason}`;
+        currentTask.updateTime = new Date().valueOf();
+        await GM.setValue("tasks", tasks);
+        
+        // 强制跳转到下一题 (使用 location.replace 避免历史记录堆积)
+        const target = nextTask.doi || "about:blank";
+        console.warn(`正在强制跳转到: ${target}`);
+        window.location.href = target;
+    };
+
+    // 2. 启动看门狗定时器 (60秒后如果还在当前页面，说明卡死了)
+    // 注意：这个定时器会在页面卸载(正常跳转)时自动失效
+    const WATCHDOG_TIMEOUT = 120 * 1000; 
+    const watchdogId = setTimeout(() => {
+        forceAbort("Script Execution Timeout (60s limit)");
+    }, WATCHDOG_TIMEOUT);
+
+    // 3. 检测特殊页面类型 (PDF, XML, Plain Text)
+    // 这些页面 SingleFile 无法处理，必须跳过
+    const contentType = document.contentType || "";
+    const isPDF = contentType.includes("pdf") || window.location.pathname.endsWith(".pdf");
+    const isXML = contentType.includes("xml") || contentType.includes("json");
+    
+    if (isPDF || isXML) {
+        clearTimeout(watchdogId); // 清除定时器
+        await sleep(2); // 稍等两秒让用户看一眼
+        await forceAbort(`Unsupported Content-Type: ${contentType}`);
+        return; // 终止后续执行
+    }
+    
+    // ============================================================
+    // 🛡️ 安全机制结束
+    // ============================================================
+
+    // 2. [新增] 显式检查 Validator 是否存在
+    // 如果不存在，记录失败原因，而不是像以前那样直接跳过导致没记录
+    if (!validators[currentTask.validator]) {
+        console.error(`❌ 致命错误: 缺少校验器配置 ${currentTask.validator}，跳过此任务`);
+        
+        // 记录失败原因
+        currentTask.failReason = `Missing Validator Config: ${currentTask.validator}`;
+        currentTask.validated = false; // 标记为验证失败，防止下次无限重试
+        currentTask.updateTime = new Date().valueOf();
+        
+        // 保存状态
+        await GM.setValue("tasks", tasks); 
+
+        // 直接跳到下一个任务 (不执行后面的逻辑)
+        await prepareNextTask(nextTask.doi);
+        return;
+    }
+    // ================= [修改结束] =================
+
+    const invalidatedTasks = tasks.filter((task) => task.validated === false);
+    const doneTasks = tasks
+      .filter((task) => task.downloaded)
+      .sort((a, b) => (a.updateTime > b.updateTime ? -1 : 1));
+    const previousDay = new Date().valueOf() - 24 * 3600 * 1000;
+    const last24hDoneTasks = doneTasks.filter(
+      (task) => task.updateTime > previousDay
+    );
+
+    const lastDoneTime = new Date(doneTasks[0]?.updateTime);
+    // const currentTask = waitingTasks[0];
+    // const nextTask = waitingTasks[1] || {};
+    await saveTaskTimepoint(TIME_POINT_TYPES.TASK_LOADED, currentTask, tasks);
+
+    const updateCurrentTask = async (isSuccess) => {
+      currentTask.validated = isSuccess;
+      currentTask.updateTime = new Date().valueOf();
+      await GM.setValue("tasks", tasks);
+    };
+
+    // Report progress
+    const reportUrl = gmc.get("reportServer") || REPORT_ADDRESS;
+    const reportTip = `Last download time: ${lastDoneTime.toLocaleString()}
+      Speed: ${last24hDoneTasks.length} / last 24h`;
+    GM.xmlHttpRequest({
+      url: reportUrl,
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      data: JSON.stringify({
+        account: clientId,
+        invalidate_count: invalidatedTasks.length,
+        done_count: doneTasks.length,
+        queue_count: waitingTasks.length,
+        tip: reportTip,
+      }),
+    })
+      .then((res) => {
+        console.log("Report successfully", { res });
+      })
+      .finally(() => {
+        saveTaskTimepoint(TIME_POINT_TYPES.TASK_REPORTED, currentTask, tasks);
+      });
+
+
+    // -------------------------- Detect Cloudflare challenge -------------------------------------------------------
+    // ✅ 等到“有结果”为止：要么出现 CF challenge，要么页面满足校验前置条件，要么超时
+    const isHumanChallengePage = () => {
+      // Cloudflare 旧版
+      if (document.getElementById("challenge-form")) return true;
+
+      // ✅ 新的人机验证页面
+      if (document.querySelector('h1.u-h2')?.textContent?.includes("Are you a robot")) {
+        return true;
+      }
+
+      return false;
+    };
+
+    await waitUntil(() => {
+      // 1) Cloudflare challenge
+      if (isHumanChallengePage()) return true;
+
+      // 2) DOI 已经出现在正文里（你的后面也会做这个检查，这里只是用来提前结束等待）
+      if (document.body?.textContent?.toLowerCase()?.includes(doi)) return true;
+
+      // 3) validator 已经能判定为 true（如果页面结构已就绪）
+      if (validator(document)) return true;
+
+      return false;
+    }, { timeoutMs: PAGE_LOADING_TIME * 1000, intervalMs: 200 });
+
+    // 等待结束后再判断是否 CF
+    if (isHumanChallengePage()) {
+      console.log(`%cCloudflare challenge! ${currentTask.doi}`, printStyle);
+      await sleep(CF_CHALLENGE_WAITING_TIME);
+
+      currentTask.cloudflareBlock = true;
+      currentTask.failReason = "Cloudflare/Captcha Challenge blocked";
+      await updateCurrentTask(false);
+
+      await prepareNextTask(nextTask.doi);
+      return;
+    }
+
+    // bypass els institution check
+    if (document.querySelector('.sec-A #bdd-els-close')) {
+      const elsCloseBtn = document.querySelector('.sec-A #bdd-els-close');
+      elsCloseBtn.click();
+    }
+
+    // ---------------------------- validated task ------------------------------------------------
+
+    const doi = currentTask.doi.replace("https://doi.org/", "").toLowerCase();
+    const doiFixed = doi.replaceAll("/", "_");
+
+    const validator = (document) => {
+      const abs_selectors = validators[currentTask.validator]["sel_A"];
+      const para_selectors = validators[currentTask.validator]["sel_P"];
+      if (abs_selectors.length == 0 && para_selectors.length == 0) {
+        return false;
+      }
+      const absValidated = abs_selectors.length == 0 || abs_selectors.some((selector) => document.querySelector(selector));
+      const paraValidated = para_selectors.length == 0 || para_selectors.some((selector) => document.querySelectorAll(selector).length > 0);
+      return absValidated && paraValidated;
+    }
+
+    let name = "";
+    let pass = "";
+    let preferServer = "";
+    try {
+      name = gmc.get("Name");
+      pass = gmc.get("Password");
+      preferServer = gmc.get("preferServer");
+      if (!name || !pass) {
+        throw new Error();
+      }
+    } catch (err) {
+      console.error(
+        `%cMiss name or password. Please input in config panel.`,
+        printStyle
+      );
+      return;
+    }
+    const presigns = await getPreSignUrlsForDoi(doiFixed, name, pass, preferServer);
+
+    const idxNew = presigns["_.html.gz"];
+    const sfNew  = presigns["_.sf.html.gz"];
+    const idxOld = presigns["_.html"];
+    const sfOld  = presigns["_.sf.html"];
+
+    // 1. reload 判定
+    if ([idxNew, sfNew, idxOld, sfOld].some(x => x.status === "RELOAD")) {
+      await reload(
+        ERROR_RELOAD_LONG_TIME,
+        "Minio PreSignUrl error, please check url or account"
+      );
+      return;
+    }
+
+    // 2. 新 / 旧格式存在判定
+    if ([idxNew, sfNew].every(x => x.status === "EXIST")) {
+      currentTask.failReason = "File already exists on server (New format)";
+      await updateCurrentTask(false);
+      await prepareNextTask(nextTask.doi);
+      return;
+    }
+
+    if ([idxOld, sfOld].every(x => x.status === "EXIST")) {
+      currentTask.failReason = "File already exists on server (Old format)";
+      await updateCurrentTask(false);
+      await prepareNextTask(nextTask.doi);
+      return;
+    }
+
+    // 3. ERROR 兜底
+    const errors = [idxNew, sfNew].filter(x => x.status === "ERROR");
+    if (errors.length) {
+      currentTask.failReason = `PreSign error: ${errors.map(e => e.msg).join(" | ")}`;
+      await updateCurrentTask(false);
+      await prepareNextTask(nextTask.doi);
+      return;
+    }
+
+    // 4. 真正用于上传的 URL
+    const indexUrl = idxNew.status === "URL" ? idxNew.url : null;
+    const singlefileUrl = sfNew.status === "URL" ? sfNew.url : null;
+
+    // timepoint 保留
+    await saveTaskTimepoint(TIME_POINT_TYPES.PRESIGN_INDEX, currentTask, tasks);
+    await saveTaskTimepoint(TIME_POINT_TYPES.PRESIGN_SINGLEFILE, currentTask, tasks);
+
+    // --------------------------- Page validate ------------------------------------------------------
+    if (!document.body.textContent.toLowerCase().includes(doi)) {
+      console.log(
+        `%cURL not match, will redirect to ${currentTask.doi} 5s later`,
+        printStyle
+      );
+      await sleep(QUICK_SLEEP_TIME);
+      // === MODIFIED: 传递错误原因 ===
+      if(await checkRetry(currentTask, tasks, nextTask.doi, "Page text content does not include DOI")){
+        location.href = currentTask.doi;
+      }
+      return;
+    }
+    
+    if (validator(document)) {
+      console.log(
+        "%cValidate successfully! Downloading page...",
+        printStyle,
+        waitingTasks,
+        tasks
+      );
+      importBtnHandler();
+      try {
+        const data = await singlefile.getPageData(DEFAULT_CONFIG);
+        await saveTaskTimepoint(
+          TIME_POINT_TYPES.SINGLE_FILE_SUCCESS,
+          currentTask,
+          tasks
+        );
+
+        if (singlefileUrl) {
+          await uploader(singlefileUrl, data.content);
+          await saveTaskTimepoint(
+            TIME_POINT_TYPES.SINGLE_FILE_UPLOADED,
+            currentTask,
+            tasks
+          );
+        }
+        if (indexUrl) {
+          dependenciesHandler();
+          pureHTMLCleaner(document);
+          await uploader(indexUrl, document.body.parentElement.outerHTML);
+          await saveTaskTimepoint(
+            TIME_POINT_TYPES.INDEX_FILE_UPLOADED,
+            currentTask,
+            tasks
+          );
+        }
+        console.log("%cUpload successfully!", printStyle);
+        currentTask.downloaded = true;
+        // 成功时清除可能存在的失败原因
+        delete currentTask.failReason;
+        await updateCurrentTask(true);
+      } catch (error) {
+        console.error("%c[DEBUG] Capture Fatal Error:", "color: red", error);
+        
+        // === MODIFIED: 传递具体的 Exception 信息给 checkRetry ===
+        if (await checkRetry(currentTask, tasks, nextTask.doi, `Exception: ${error.message}`)) {
+          await reload(
+            ERROR_RELOAD_TIME,
+            `singlefile or upload error! ${currentTask.doi}`
+          );
+        }
+        return;
+      }
+    } else {
+      // ============ 插入开始：详细的校验失败记录 ============
+      const vConfig = validators[currentTask.validator];
+      const absSelectors = vConfig["sel_A"];
+      const paraSelectors = vConfig["sel_P"];
+
+      const hasAbstract = absSelectors.length === 0 || absSelectors.some((s) => document.querySelector(s));
+      const hasParagraphs = paraSelectors.length === 0 || paraSelectors.some((s) => document.querySelectorAll(s).length > 0);
+
+      const failDetail = `Validator Mismatch. Abstract found: ${hasAbstract}, Paragraphs found: ${hasParagraphs}. Title: ${document.title}`;
+      
+      console.log(`%cValidate failed! ${currentTask.doi}`, printStyle);
+      
+      await saveTaskTimepoint(
+        TIME_POINT_TYPES.VALIDATE_FAILED,
+        currentTask,
+        tasks
+      );
+      
+      // === MODIFIED: 记录校验失败原因 ===
+      currentTask.failReason = failDetail;
+      await updateCurrentTask(false);
+    }
+
+    await prepareNextTask(nextTask.doi);
+  }
+
+  start();
+})();
