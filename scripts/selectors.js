@@ -316,17 +316,17 @@ window.validators = {
   },
   "10.1515": {
     "sel_A": [
-      ".article .abstract p",
-      ".abstract p"
+      ".article .abstract > p",
+      ".abstract > p"
     ],
     "sel_R": "a.link-bibr",
     "sel_P": [
-      ".body p",
-      ".body section p"
+      ".body > section > p",
+      ".body > p"
     ],
     "sel_F": [
-      ".figure-caption .caption p",
-      ".figure-caption"
+      ".figure-wrapper .figure-caption .caption p",
+      ".figure-description .figure-caption p"
     ],
     "sel_S": [],
     "sel_T": [
