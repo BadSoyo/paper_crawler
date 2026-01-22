@@ -369,7 +369,7 @@ async function getPreSignUrlsForDoi(doi, name, pass, preferServer="") {
       },
       {
         url: "https://cdn.jsdelivr.net/gh/IKKEM-Lin/crawler-base-on-singlefile/config.js",
-        cache: false,
+        cache: true,
       },
       {
         url: VALIDATOR_URL,
@@ -377,7 +377,7 @@ async function getPreSignUrlsForDoi(doi, name, pass, preferServer="") {
       },
       {
         url: "https://cdn.jsdelivr.net/npm/pako@2.1.0/dist/pako.min.js",
-        cache: false,
+        cache: true,
       },
     ];
 
