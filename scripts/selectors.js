@@ -314,6 +314,30 @@ window.validators = {
       }
     ]
   },
+  "10.1515": {
+    "sel_A": [
+      ".article .abstract p",
+      ".abstract p"
+    ],
+    "sel_R": "a.link-bibr",
+    "sel_P": [
+      ".body p",
+      ".body section p"
+    ],
+    "sel_F": [
+      ".figure-caption .caption p",
+      ".figure-caption"
+    ],
+    "sel_S": [],
+    "sel_T": [
+      {
+        "wrapper": ".table-wrap",
+        "title": ".caption p",
+        "table": "table",
+        "footer": ".table-wrap-foot"
+      }
+    ]
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
