@@ -338,6 +338,24 @@ window.validators = {
       }
     ]
   },
+  "10.1109": {
+    "sel_A": [
+      "xpl-document-abstract .abstract-text div[xplmathjax]",
+      ".abstract-desktop-div .abstract-text h2 + div",
+      ".document-abstract .abstract-text div[xplreadinglenshighlight]"
+    ],
+    "sel_R": "a[ref-type=\"bibr\"]",
+    "sel_P": [
+      "#article .section p",
+      "#BodyWrapper #article p"
+    ],
+    "sel_F": [
+      ".figure .figcaption p",
+      "div[id^='fig'] .figcaption p"
+    ],
+    "sel_S": [],
+    "sel_T": []
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
