@@ -478,4 +478,4 @@ window.validators = {
 
 window.validators["10.1006"] = window.validators["10.1016"];
 window.validators["10.1149"] = window.validators["10.1088"];
-window.validators["10.1155"] = window,validators["10.1002"]
+window.validators["10.1155"] = window,validators["10.1002"];
