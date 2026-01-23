@@ -449,6 +449,21 @@ window.validators = {
       }
     ]
   },
+  "10.1557": {
+    "sel_A": ["#Abs1-content p"],
+    "sel_R": "a[id^=\"ref\"]",
+    "sel_P": [".main-content .c-article-section__content > p"],
+    "sel_F": [".main-content figure .c-article-section__figure-description"],
+    "sel_S": [],
+    "sel_T": [
+      {
+        "wrapper": "",
+        "title": "",
+        "table": "",
+        "footer": ""
+      }
+    ]
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
@@ -479,3 +494,4 @@ window.validators = {
 window.validators["10.1006"] = window.validators["10.1016"];
 window.validators["10.1149"] = window.validators["10.1088"];
 window.validators["10.1155"] = window.validators["10.1002"];
+window.validators["10.1557"] = window.validators["10.1007"];
