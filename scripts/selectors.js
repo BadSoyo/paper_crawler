@@ -423,6 +423,32 @@ window.validators = {
       }
     ]
   },
+  "10.1155": {
+    "sel_A": [
+      ".article__body .abstract-group .article-section__abstract .article-section__content",
+      "article .abstract-group",
+      "#ContentColumn h2.abstract-title + .abstract > p:first-child"
+    ],
+    "sel_R": "a[data-tab=\"pane-pcw-references\"]",
+    "sel_P": [
+      ".article__body .article-section__full :where(.article-section__content > p, .article-section__sub-content > p)",
+      "#ContentColumn :where(h2.section-title, h3.section-title, h4.section-title)~:where(p, ul)"
+    ],
+    "sel_F": [
+      ".article__body .article-section__inline-figure .figure__caption-text"
+    ],
+    "sel_S": [
+      ".article__body .article-section__inline-figure .figure__caption-text"
+    ],
+    "sel_T": [
+      {
+        "wrapper": ".article__body .article-table-content",
+        "title": ".article-table-caption",
+        "table": "table",
+        "footer": ".article-section__table-footnotes"
+      }
+    ]
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
@@ -452,3 +478,4 @@ window.validators = {
 
 window.validators["10.1006"] = window.validators["10.1016"];
 window.validators["10.1149"] = window.validators["10.1088"];
+window.validators["10.1155"] = window,validators["10.1002"]
