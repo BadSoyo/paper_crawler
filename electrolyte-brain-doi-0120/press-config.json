@@ -549,6 +549,46 @@
       }
     ]
   },
+  "10.1117": {
+    "sel_A": [
+      "#figure0 .citationSectionDiv .ArticleContentText",
+      ".ArticleContentText",
+      ".abstract-text"
+    ],
+    "sel_R": [
+      "#article-back .ref-list",
+      ".ref-list",
+      "a.internal-link",
+      "a[ref-type=\"bibr\"]"
+    ],
+    "sel_P": [
+      "#article-body .section p",
+      ".div1 .citationSectionDiv .ArticleContentText",
+      ".div2 .citationSectionDiv .ArticleContentText",
+      ".div3 .citationSectionDiv .ArticleContentText",
+      ".div4 .citationSectionDiv .ArticleContentText",
+      ".citationSectionDiv .ArticleContentText"
+    ],
+    "sel_F": [
+      ".fig.panel .caption p",
+      ".figureDialogCaption p"
+    ],
+    "sel_S": [],
+    "sel_T": [
+      {
+        "wrapper": ".table",
+        "title": ".label",
+        "table": "table",
+        "footer": ""
+      },
+      {
+        "wrapper": ".table-wrap",
+        "title": ".table-caption",
+        "table": "table",
+        "footer": ""
+      }
+    ]
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
