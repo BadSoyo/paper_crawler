@@ -470,12 +470,7 @@ window.validators = {
       ".ArticleContentText",
       ".abstract-text"
     ],
-    "sel_R": [
-      "#article-back .ref-list",
-      ".ref-list",
-      "a.internal-link",
-      "a[ref-type=\"bibr\"]"
-    ],
+    "sel_R": "#article-back .ref-list",
     "sel_P": [
       "#article-body .section p",
       ".div1 .citationSectionDiv .ArticleContentText",
