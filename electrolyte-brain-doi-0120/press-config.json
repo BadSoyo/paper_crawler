@@ -480,6 +480,28 @@
       }
     ]
   },
+  "10.15376": {
+    "sel_A": [
+      ".main.post h4 + p"
+    ],
+    "sel_R": "",
+    "sel_P": [
+      ".main.post > p"
+    ],
+    "sel_F": [
+      ".main.post p img",
+      ".main.post .wp-caption img"
+    ],
+    "sel_S": [],
+    "sel_T": [
+      {
+        "wrapper": ".main.post table",
+        "title": "caption",
+        "table": "tbody",
+        "footer": ""
+      }
+    ]
+  },
   "10.1017": {
     "sel_A": [
       ".abstract-content .abstract p",
